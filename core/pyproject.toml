@@ -1,6 +1,6 @@
 [project]
 name = "motion-reference-analyzer"
-version = "0.1.0"
+version = "1.0.0"
 description = "Motion Reference Analyzer Core"
 requires-python = ">=3.11"
 dependencies = [
@@ -9,11 +9,13 @@ dependencies = [
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
     "av>=12.0.0",
-    "opencv-python>=4.10.0",
+    "opencv-contrib-python==4.10.0.84",
+    "opencv-python==4.10.0.84",
     "numpy>=2.0.0",
-    "scenedetect[opencv]>=0.6.0",
+    "scenedetect>=0.6.0",
     "Pillow>=11.0.0",
     "httpx>=0.27.0",
+    "librosa>=0.11,<0.12",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +23,10 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.7.0",
+]
+ocr = [
+    "paddlepaddle==3.3.1",
+    "paddleocr==3.7.0",
 ]
 
 [tool.ruff]
@@ -37,4 +43,4 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*", "video*", "vision*", "cv*", "ocr*", "recipe*", "schemas*", "tests*"]
+include = ["app*", "video*", "vision*", "cv*", "ocr*", "recipe*", "schemas*", "db*", "audio*", "projects*", "models*", "selection*"]

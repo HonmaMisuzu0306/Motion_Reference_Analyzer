@@ -5,6 +5,8 @@ import av
 import numpy as np
 from PIL import Image
 
+from video.timing import video_origin
+
 
 def sample_frames(
     video_path: str | Path,
@@ -40,13 +42,14 @@ def _decode_nearest_frame(
 ) -> np.ndarray:
     """解码最接近目标时间戳的帧。"""
     video_stream.codec_context.skip_frame = "NONE"
-    target_pts = int(target_timestamp * video_stream.time_base.denominator / video_stream.time_base.numerator)
+    origin = video_origin(video_stream)
+    target_pts = int((target_timestamp + origin) / video_stream.time_base)
     container.seek(target_pts, stream=video_stream)
 
     best_frame = None
     best_diff = float("inf")
     for frame in container.decode(video_stream):
-        frame_pts = float(frame.pts * video_stream.time_base)
+        frame_pts = float(frame.pts * video_stream.time_base) - origin
         diff = abs(frame_pts - target_timestamp)
         if diff < best_diff:
             best_diff = diff

@@ -23,6 +23,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 package-lock.json
+!/apps/desktop/package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -40,6 +41,14 @@ samples/*.avi
 
 # Project memory / local data
 .workbuddy/
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.timestamp-*.mjs
 
 # IDE
 .vscode/

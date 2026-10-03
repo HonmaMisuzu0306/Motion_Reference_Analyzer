@@ -1,0 +1,5 @@
+import type { CSSProperties } from 'react';
+export type IconName = 'import'|'analyze'|'save'|'export'|'library'|'models'|'settings'|'project'|'reset'|'play'|'pause';
+const paths:Record<IconName,string>={import:'M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5',analyze:'m9 5 11 7-11 7z',save:'M5 3h12l4 4v14H3V3zM7 3v6h10V3M7 21v-8h10v8',export:'M12 16V3m-4 4 4-4 4 4M4 15v6h16v-6',library:'M3 4h5v16H3zM10 4h4v16h-4zM16 5l4-1 3 15-4 1z',models:'m12 2 10 6v8l-10 6-10-6V8zM2 8l10 6 10-6M12 14v8',settings:'M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6',project:'M3 5h7l2 3h9v12H3z',reset:'M3 10a9 9 0 1 1 1 8M3 3v7h7',play:'m6 3 15 9-15 9z',pause:'M6 3v18M18 3v18'};
+export function Icon({name,size=18}:{name:IconName,size?:number}){return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]}/></svg>}
+export function MraMark({size=28}:{size?:number}){return <img alt="MRA" src="/mra-mark.svg" style={{width:size,height:size} as CSSProperties}/>}

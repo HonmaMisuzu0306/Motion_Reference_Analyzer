@@ -4,6 +4,8 @@ from typing import Any
 import av
 import numpy as np
 
+from video.timing import video_origin
+
 
 def _frame_hash(frame: np.ndarray, bins: int = 16) -> np.ndarray:
     """生成降采样后的帧特征向量，用于快速比较。"""
@@ -32,9 +34,11 @@ def detect_scenes(
     with av.open(str(path)) as container:
         video_stream = next(s for s in container.streams if s.type == "video")
         time_base = float(video_stream.time_base)
+        origin = video_origin(video_stream)
+        current_time = 0.0
 
         for frame in container.decode(video_stream):
-            current_time = float(frame.pts * time_base)
+            current_time = float(frame.pts * time_base) - origin
             img = frame.to_ndarray(format="bgr24")
             current_hash = _frame_hash(img)
 
@@ -46,11 +50,9 @@ def detect_scenes(
 
             prev_hash = current_hash
 
-        duration = (
-            float(container.duration / av.time_base)
-            if container.duration
-            else current_time
-        )
+        # Stream duration is a length, unlike absolute frame timestamps.
+        duration = (float(video_stream.duration * time_base) if video_stream.duration is not None
+                    else current_time + (1 / float(video_stream.average_rate) if video_stream.average_rate else 0))
 
     if cuts[-1] < duration:
         cuts.append(duration)

@@ -4,6 +4,20 @@
 
 目标：将参考视频自动拆解为 **镜头时间轴、画面结构、运动信息、文字信息、效果推测与 AE 制作建议**，并为后续与 **LocalFX** 联动预留结构化接口。
 
+## V1.0 Windows 桌面版
+
+从 [GitHub Release v1.0.0](https://github.com/HonmaMisuzu0306/Motion_Reference_Analyzer/releases/tag/v1.0.0) 下载 `MRA-1.0.0-x64-setup.exe`，无需系统 Python/Node/Rust。支持 Windows 10/11 x64。
+深灰工作台与原创图标、中文界面、项目恢复/重连、外部模型推荐与配置、基础分析及完整分析、参考库和导出已实现。
+模型权重不随应用提供，由用户从“模型”页的官网入口自行取得；基础分析无需模型。
+
+- [使用与外部模型准备](docs/V1_0_USAGE.md)
+- [1.0 功能与验证范围](docs/RELEASE_v1.0.0.md)
+- [源码构建](docs/V1_0_BUILD_GUIDE.md)
+
+安装版数据默认保存在 `%LOCALAPPDATA%/MotionReferenceAnalyzer`。开发旧库不会被自动迁移，可在空库显式导入副本；源码开发命令继续见下方。
+
+新增自选分析：点击“分析当前帧”即可分析准确画面，也可用上一帧/下一帧微调；设置入点/出点分析最长60秒片段。局部结果独立保存，可回看、重试和导出，不覆盖整片镜头结果。单帧只提供静态分析，片段少于8秒不估计BPM。
+
 ---
 
 ## 项目结构
@@ -55,7 +69,15 @@ npm install
 npm run tauri dev
 ```
 
-注意：当前沙箱环境中 `npm install` 会被安全策略终止（SIGTERM），前端源码与配置已就绪，可在允许 npm 网络访问的环境中继续完成安装。
+`scripts/start_server.py` 优先使用 `core/.venv` 的 Python。M6 音频依赖 librosa 随核心安装；前端本次已通过 TypeScript 与 Vite 构建验证。
+
+### M6 音频节奏
+
+导入含音轨的视频并点击“分析视频”，查看音频节奏面板中的 BPM、Beat/onset、切镜同步率及时间轴。点击镜头可定位播放并查看有符号的偏差；“重新分析音频”只重算音频，不调用视觉或 OCR 模型。
+
+默认同步容差为 ±80ms。无音轨、静音、节拍不足会明确显示不可判断。JSON、Markdown、AE Recipe 与 Library 都保留节奏结果。V1.0 使用 schema6；时间原点无法确认的非零时间戳旧镜头需重新分析视频。
+
+可复现的合成 MP4 验收：`core/.venv/Scripts/python.exe scripts/accept_audio.py`（Windows）。该脚本真实运行音频算法，Vision/OCR 使用 Mock，结果只写 `output/m6_acceptance` 的独立库。真实模型及局部分析验收入口见[构建说明](docs/V1_0_BUILD_GUIDE.md)。
 
 ---
 
