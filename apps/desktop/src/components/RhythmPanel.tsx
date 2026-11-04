@@ -56,33 +56,36 @@ export function RhythmPanel({ audio, summary, shots, selected, duration, source,
   }, [selectedStart, span]);
 
   return <section className="rhythm-panel card" aria-label="音频节奏分析">
-    <div className="rhythm-header"><h2>音频节奏</h2>
-      <button disabled={busy} onClick={onAnalyze}>{audio?.status === "error" ? "重试音频分析" : "重新分析音频"}</button>
+    <div className="rhythm-header">
+      <div className="rhythm-title"><h2>音频节奏</h2><p role="status" className={`chip ${audio?.status === "ok" ? "green" : audio?.status === "error" ? "red" : ""}`}>{audioLabels[audio?.status ?? "pending"]}{audio?.cache_hit ? " · 已使用缓存" : ""}</p></div>
+      <div className="rhythm-stats">
+        <div><strong>{audio?.tempo_bpm?.toFixed(1) ?? "—"}</strong><span>BPM（估计）</span></div>
+        <div><strong>{audio?.beat_times.length ?? 0}<i>/</i>{audio?.onset_times.length ?? 0}</strong><span>节拍 / 瞬态</span></div>
+        <div className="accent"><strong>{summary?.sync_ratio == null ? "—" : `${(summary.sync_ratio * 100).toFixed(0)}%`}</strong><span>切镜同步率 · ±{summary?.tolerance_ms ?? 80}ms</span></div>
+        <div><strong>{summary?.synced_cut_count ?? 0}<i>/</i>{summary?.measured_cut_count ?? 0}</strong><span>同步 / 可判断 · 共{summary?.cut_count ?? 0}次切镜</span></div>
+      </div>
+      <div className="rhythm-controls">
+        <label>窗口开始（秒）<input aria-label="节奏窗口开始" type="number" min="0" max={total} step="1" value={start} onChange={e => setWindowStart(Number(e.target.value) || 0)} /></label>
+        <label>窗口长度<select aria-label="节奏窗口长度" value={span} onChange={e => setSpan(Number(e.target.value))}><option value={30}>30秒</option><option value={60}>60秒</option><option value={Math.max(120, total)}>完整视频</option></select></label>
+        <span className="mono rhythm-range">{start.toFixed(2)}–{end.toFixed(2)}s</span>
+      </div>
+      <button className="sm" disabled={busy} onClick={onAnalyze}>{audio?.status === "error" ? "重试音频分析" : "重新分析音频"}</button>
     </div>
-    <p role="status">{audioLabels[audio?.status ?? "pending"]}{audio?.cache_hit ? " · 已使用缓存" : ""}</p>
     {audio?.message && <p className={audio.status === "error" ? "rhythm-error" : "rhythm-note"}>{audio.message}</p>}
     {!!summary?.excluded_shot_count && <p role="alert" className="rhythm-error">{summary.excluded_shot_count} 条旧镜头的时间原点未经确认，未参与节奏统计；请重新分析视频。</p>}
-    <div className="rhythm-stats">
-      <div><strong>{audio?.tempo_bpm?.toFixed(1) ?? "—"}</strong><span>BPM（估计）</span></div>
-      <div><strong>{audio?.beat_times.length ?? 0} / {audio?.onset_times.length ?? 0}</strong><span>节拍 / 瞬态</span></div>
-      <div><strong>{summary?.sync_ratio == null ? "—" : `${(summary.sync_ratio * 100).toFixed(0)}%`}</strong><span>切镜同步率 · ±{summary?.tolerance_ms ?? 80}ms</span></div>
-      <div><strong>{summary?.synced_cut_count ?? 0} / {summary?.measured_cut_count ?? 0}</strong><span>同步 / 可判断 · 共{summary?.cut_count ?? 0}次切镜</span></div>
-    </div>
-    <div className="rhythm-controls">
-      <label>窗口开始（秒）<input aria-label="节奏窗口开始" type="number" min="0" max={total} step="1" value={start} onChange={e => setWindowStart(Number(e.target.value) || 0)} /></label>
-      <label>窗口长度<select aria-label="节奏窗口长度" value={span} onChange={e => setSpan(Number(e.target.value))}><option value={30}>30秒</option><option value={60}>60秒</option><option value={Math.max(120, total)}>完整视频</option></select></label>
-      <span>{start.toFixed(2)}–{end.toFixed(2)}s</span>
-    </div>
+    <div className="rhythm-track">
     <svg preserveAspectRatio="none" viewBox="0 0 1000 120" role="img" aria-label="音量包络、节拍与瞬态时间轴" className="rhythm-timeline">
-      <rect width="1000" height="120" fill="#1b1b1b" />
-      <path d={wavePath} fill="none" stroke="#9cabbf" strokeWidth="1.5" />
-      <line x1="0" x2="1000" y1="47" y2="47" stroke="#dce4ee" />
-      {audio?.beat_times.filter(visible).map(t => <line key={`beat${t}`} x1={x(t)} x2={x(t)} y1="51" y2="78" stroke="#086fbd" strokeWidth="2"><title>节拍 {t.toFixed(3)}s</title></line>)}
-      {audio?.onset_times.filter(visible).map(t => <line key={`onset${t}`} x1={x(t)} x2={x(t)} y1="85" y2="106" stroke="#8755b7" strokeWidth="1.5"><title>瞬态 {t.toFixed(3)}s</title></line>)}
-      {visible(externalPlayhead??playhead) && <line x1={x(externalPlayhead??playhead)} x2={x(externalPlayhead??playhead)} y1="0" y2="120" stroke="#eea870" strokeWidth="2" />}
+      <defs><linearGradient id="rhythm-wave" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7b8cff" stopOpacity=".55"/><stop offset="1" stopColor="#7b8cff" stopOpacity="0"/></linearGradient></defs>
+      {Array.from({ length: 11 }, (_, i) => <line key={`grid${i}`} x1={i * 100} x2={i * 100} y1="0" y2="120" stroke="rgba(255,255,255,.04)" />)}
+      {wavePath && <path d={`${wavePath} L${x(points[points.length - 1].time).toFixed(2)},47 L${x(points[0].time).toFixed(2)},47 Z`} fill="url(#rhythm-wave)" stroke="none" />}
+      <path d={wavePath} fill="none" stroke="#a8b3ff" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+      <line x1="0" x2="1000" y1="47" y2="47" stroke="rgba(255,255,255,.14)" vectorEffect="non-scaling-stroke" />
+      {audio?.beat_times.filter(visible).map(t => <line key={`beat${t}`} x1={x(t)} x2={x(t)} y1="53" y2="78" stroke="#5cc8ff" strokeWidth="2" strokeLinecap="round" vectorEffect="non-scaling-stroke"><title>节拍 {t.toFixed(3)}s</title></line>)}
+      {audio?.onset_times.filter(visible).map(t => <line key={`onset${t}`} x1={x(t)} x2={x(t)} y1="86" y2="106" stroke="#b98cff" strokeOpacity=".8" strokeWidth="1.5" vectorEffect="non-scaling-stroke"><title>瞬态 {t.toFixed(3)}s</title></line>)}
+      {visible(externalPlayhead??playhead) && <line x1={x(externalPlayhead??playhead)} x2={x(externalPlayhead??playhead)} y1="0" y2="120" stroke="#ffb648" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
     </svg>
     <div className="rhythm-cuts" aria-label="镜头时间轴">
-      {visibleShots.map(s => <button key={`${s.shot_id}:${s.library_id ?? ""}`} className={s.rhythm?.beat_sync === true ? "sync" : s.rhythm?.beat_sync === false ? "off" : "unknown"}
+      {visibleShots.map(s => <button key={`${s.shot_id}:${s.library_id ?? ""}`} className={`${s.rhythm?.beat_sync === true ? "sync" : s.rhythm?.beat_sync === false ? "off" : "unknown"} ${s === selected ? "selected" : ""}`}
         style={{ left: `${Math.max(0, x(s.time.start)) / 10}%`, width: `${Math.max(.1, (x(Math.min(s.time.end, end)) - x(Math.max(s.time.start, start))) / 10)}%` }}
         aria-label={`选择 ${s.shot_id}，${s.time.start.toFixed(3)}秒`} title={`${s.shot_id} · ${s.time.start.toFixed(3)}s · ${s.rhythm?.delta_ms == null ? "不可判断" : `${s.rhythm.delta_ms}ms`}`}
         onClick={() => {
@@ -92,7 +95,8 @@ export function RhythmPanel({ audio, summary, shots, selected, duration, source,
           setPlayhead(s.time.start); onSelect(s);
         }}>{s.shot_id}</button>)}
     </div>
-    <p className="rhythm-legend"><span>蓝：估计节拍</span><span>紫：瞬态</span><span>绿：切镜同步</span><span>橙：偏离节拍</span><span>灰：不可判断 / 首镜头</span></p>
+    </div>
+    <p className="rhythm-legend"><span className="lg beat">蓝：估计节拍</span><span className="lg onset">紫：瞬态</span><span className="lg sync">绿：切镜同步</span><span className="lg off">橙：偏离节拍</span><span className="lg unknown">灰：不可判断 / 首镜头</span><span className="lg playhead">琥珀：播放头</span></p>
     <p className="rhythm-note">点击镜头查看偏差并定位视频。同步仅表示时间接近，不代表作者意图；瞬态不替代节拍。</p>
     {!hidePlayer && <video key={source} ref={player} controls preload="metadata" src={api.videoSourceUrl(source)}
       onLoadedMetadata={e => { e.currentTarget.currentTime = selectedStart; }}

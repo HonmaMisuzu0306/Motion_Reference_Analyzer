@@ -1,24 +1,50 @@
-.rhythm-panel { margin: 1rem 0; }
-.rhythm-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.rhythm-header h2 { margin: 0; font-size: 1.2rem; }
-.rhythm-note { color: #64748b; font-size: .85rem; }
-.rhythm-error { color: #a32918; }
-.rhythm-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 1rem 0; }
-.rhythm-stats div { background: #f5f8fc; padding: .8rem; border-radius: 6px; }
-.rhythm-stats strong { display: block; font-size: 1.4rem; color: #174b75; }
-.rhythm-stats span { font-size: .8rem; color: #53677e; }
-.rhythm-controls { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; font-size: .85rem; margin: 1rem 0; }
-.rhythm-controls input { width: 6rem; }
-.rhythm-controls input, .rhythm-controls select { margin-left: .5rem; padding: .35rem; border: 1px solid #cbd5e1; border-radius: 4px; }
-.rhythm-timeline { display: block; width: 100%; max-height: 160px; }
-.rhythm-cuts { position: relative; height: 32px; margin-top: 4px; overflow: hidden; background: #edf2f8; border-radius: 4px; }
-.rhythm-cuts button { position: absolute; height: 32px; border: 1px solid white; border-radius: 2px; padding: 0 .25rem; font-size: .75rem; white-space: nowrap; overflow: hidden; }
-.rhythm-cuts .sync, .rhythm-badge.sync { background: #ddf4e6; color: #165934; }
-.rhythm-cuts .off, .rhythm-badge.off { background: #fff0d8; color: #89540b; }
-.rhythm-cuts .unknown { background: #e2e8f0; color: #475569; }
-.rhythm-cuts button:focus-visible { outline: 3px solid #0078d4; outline-offset: -3px; }
-.rhythm-legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .8rem; color: #52657a; }
-.rhythm-panel video { max-width: 100%; width: 480px; max-height: 270px; border-radius: 4px; background: #1c2533; }
-.rhythm-badge { padding: .15rem .5rem; border-radius: 4px; margin-left: .7rem; font-size: .8rem; }
-.cut-rhythm p { margin: .45rem 0; }
-@media (max-width: 800px) { .rhythm-stats { grid-template-columns: repeat(2, 1fr); } .rhythm-header { flex-wrap: wrap; } }
+.rhythm-panel{margin:0;padding:12px 14px}
+.rhythm-header{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:8px}
+.rhythm-title{display:flex;align-items:center;gap:10px}
+.rhythm-title h2{font-size:13px;margin:0}
+.rhythm-title [role=status]{margin:0}
+.rhythm-note{color:var(--text-3);font-size:11.5px;margin:4px 0}
+.rhythm-error{color:var(--red);font-size:12px;margin:4px 0}
+.rhythm-stats{display:flex;gap:6px;flex-wrap:wrap}
+.rhythm-stats>div{display:flex;flex-direction:column;justify-content:center;padding:3px 12px;min-width:84px;height:40px;background:var(--bg-0);border:1px solid var(--line);border-radius:var(--r-sm)}
+.rhythm-stats strong{display:block;font:600 14px/1.15 var(--font-mono);color:#fff;font-variant-numeric:tabular-nums}
+.rhythm-stats strong i{font-style:normal;color:var(--text-3);margin:0 3px;font-weight:400}
+.rhythm-stats span{font-size:10px;color:var(--text-3);white-space:nowrap}
+.rhythm-stats .accent{background:var(--accent-soft);border-color:var(--accent-line)}
+.rhythm-stats .accent strong{color:#c9d0ff}
+.rhythm-controls{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--text-2);margin-left:auto}
+.rhythm-controls label{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.rhythm-controls input{width:68px;height:26px}
+.rhythm-controls select{height:26px}
+.rhythm-range{color:var(--text-3);font-size:11px}
+
+.rhythm-track{border-radius:var(--r-md);overflow:hidden;background:var(--bg-0);border:1px solid var(--line)}
+.rhythm-timeline{display:block;width:100%;height:84px}
+.rhythm-cuts{position:relative;height:28px;overflow:hidden;background:var(--bg-1);border-top:1px solid var(--line)}
+.rhythm-cuts button{position:absolute;top:3px;height:22px;padding:0 4px;border-radius:4px;font:500 10px var(--font-mono);border:1px solid rgba(0,0,0,.35);white-space:nowrap;overflow:hidden;justify-content:flex-start;min-width:0}
+.rhythm-cuts .sync{background:rgba(74,211,160,.22);color:#a6f0d3}
+.rhythm-cuts .off{background:rgba(255,159,90,.2);color:#ffcda8}
+.rhythm-cuts .unknown{background:var(--bg-3);color:var(--text-3)}
+.rhythm-cuts button:hover:not(:disabled){filter:brightness(1.3);background-color:inherit}
+.rhythm-cuts .sync:hover:not(:disabled){background:rgba(74,211,160,.32)}
+.rhythm-cuts .off:hover:not(:disabled){background:rgba(255,159,90,.3)}
+.rhythm-cuts button.selected{box-shadow:0 0 0 1.5px var(--amber) inset;color:#fff;z-index:1}
+.rhythm-cuts button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+.rhythm-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;color:var(--text-3);margin:8px 0 0}
+.lg{display:inline-flex;align-items:center;gap:5px}
+.lg::before{content:"";width:10px;height:3px;border-radius:2px;background:currentColor}
+.lg.beat::before{background:var(--cyan)}
+.lg.onset::before{background:var(--violet)}
+.lg.sync::before{background:var(--green);height:8px;width:8px}
+.lg.off::before{background:var(--orange);height:8px;width:8px}
+.lg.unknown::before{background:var(--bg-4);height:8px;width:8px}
+.lg.playhead::before{background:var(--amber);width:3px;height:10px}
+
+.rhythm-panel video{max-width:100%;width:480px;max-height:270px;border-radius:var(--r-md);background:#000;margin-top:10px}
+.rhythm-badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;margin-left:8px;font-size:10.5px;font-weight:600}
+.rhythm-badge.sync{background:var(--green-soft);color:var(--green)}
+.rhythm-badge.off{background:var(--orange-soft);color:var(--orange)}
+.cut-rhythm p{margin:4px 0;font-size:12px}
+.cut-rhythm strong{color:var(--text-3);font-weight:500}
+@media(max-width:1200px){.rhythm-controls{margin-left:0}}

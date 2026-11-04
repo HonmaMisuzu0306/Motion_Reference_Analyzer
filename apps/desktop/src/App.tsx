@@ -18,7 +18,8 @@ import { LibraryView } from "./components/LibraryView";
 import { CutRhythmView } from "./components/RhythmPanel";
 import "./App.css";
 import { Workbench } from './workbench/Workbench';
-import { MraMark, Icon } from './design/icons';
+import { MraMark, Icon, type IconName } from './design/icons';
+import type { ReactNode } from 'react';
 import { labelValue, displayRecipeText } from './i18n/labels';
 import { ProjectsPage } from './management/ProjectsPage';
 import { ModelsPage } from './management/ModelsPage';
@@ -177,10 +178,10 @@ function useElapsed(progress: AnalysisProgress | null): number {
 }
 
 function StageIcon({ status }: { status: StageProgress["status"] }) {
-  if (status === "completed") return <span className="stage-icon completed">✓</span>;
+  if (status === "completed") return <span className="stage-icon completed"><Icon name="check" size={11}/></span>;
   if (status === "running") return <span className="stage-icon running" />;
   if (status === "error") return <span className="stage-icon error">!</span>;
-  return <span className="stage-icon pending">○</span>;
+  return <span className="stage-icon pending" />;
 }
 
 function ProgressPanel({
@@ -194,10 +195,26 @@ function ProgressPanel({
   const isError = progress.status === "error";
 
   return (
-    <section className="progress-panel card">
+    <section className={`progress-panel ${isDone ? "done" : isError ? "failed" : "running"}`}>
       <div className="progress-header">
-        <strong>{STATUS_LABELS[progress.status] || progress.status}</strong>
-        <span>{Math.round(progress.overall_progress * 100)}%</span>
+        <div className="progress-title">
+          {isDone ? <span className="progress-badge ok"><Icon name="check" size={13}/></span> : isError ? <span className="progress-badge err">!</span> : <span className="spinner" />}
+          <strong>{STATUS_LABELS[progress.status] || progress.status}</strong>
+          {progress.message && !isDone && (
+            <span className="progress-message">{progress.message}</span>
+          )}
+        </div>
+        <div className="progress-meta">
+          <span><Icon name="clock" size={13}/>已用时 <b className="mono">{formatElapsed(elapsed)}</b></span>
+          {!isDone && !isError && (
+            <span>
+              {progress.eta_seconds != null
+                ? <>预计剩余 <b className="mono">{formatElapsed(Math.ceil(progress.eta_seconds))}</b></>
+                : "正在估算…"}
+            </span>
+          )}
+          <span className="progress-pct mono">{Math.round(progress.overall_progress * 100)}%</span>
+        </div>
       </div>
 
       <div className="progress-bar">
@@ -206,21 +223,6 @@ function ProgressPanel({
           style={{ width: `${Math.max(0, Math.min(1, progress.overall_progress)) * 100}%` }}
         />
       </div>
-
-      <div className="progress-meta">
-        <span>已用时 {formatElapsed(elapsed)}</span>
-        {!isDone && !isError && (
-          <span>
-            {progress.eta_seconds != null
-              ? `预计剩余 ${formatElapsed(Math.ceil(progress.eta_seconds))}`
-              : "正在估算…"}
-          </span>
-        )}
-      </div>
-
-      {progress.message && !isDone && (
-        <p className="progress-message">{progress.message}</p>
-      )}
 
       {isError && progress.error && (
         <div className="progress-error">
@@ -239,7 +241,7 @@ function ProgressPanel({
       )}
 
       {!isDone && !isError && (
-        <ul className="stage-list">
+        <ol className="stage-list">
           {STAGE_ORDER.map((key) => {
             const stage = progress.stages[key];
             if (!stage) return null;
@@ -258,13 +260,13 @@ function ProgressPanel({
               </li>
             );
           })}
-        </ul>
+        </ol>
       )}
 
       {isDone && (
         <div className="progress-summary">
           <p>
-            ✓ 分析完成 · {progress.total_shots ?? 0} 个镜头 · 总耗时 {formatElapsed(elapsed)}
+            分析完成 · <b>{progress.total_shots ?? 0}</b> 个镜头 · 总耗时 <b className="mono">{formatElapsed(elapsed)}</b>
           </p>
         </div>
       )}
@@ -461,74 +463,86 @@ function App() {
 
   const showProgressPanel = progress != null && progress.status !== "idle" && status !== "idle" && status !== "imported";
 
-  if(backend.status!=='ready')return <main className="container"><header className="header"><MraMark/><h1>MRA</h1></header><section className="management-page"><h2>{backend.status==='starting'?'正在启动':'分析服务未启动'}</h2><p role="status">{backend.message}</p>{backend.status==='error'&&<><button onClick={()=>setBootAttempt(n=>n+1)}>重试启动</button><button onClick={()=>void invoke<string>('backend_log_path').then(path=>setError(`日志位置：${path}`))}>查看日志位置</button><p>{error}</p></>}</section></main>;
+  if(backend.status!=='ready')return <main className="container boot-screen"><section className="boot-card card"><MraMark size={52}/><h1>Motion Reference Analyzer</h1><p className="boot-state">{backend.status==='starting'?<span className="spinner"/>:<span className="dot" style={{color:'var(--red)'}}/>}<strong>{backend.status==='starting'?'正在启动':'分析服务未启动'}</strong></p><p role="status">{backend.message}</p>{backend.status==='error'&&<><div className="boot-actions"><button className="primary" onClick={()=>setBootAttempt(n=>n+1)}><Icon name="reset"/>重试启动</button><button onClick={()=>void invoke<string>('backend_log_path').then(path=>setError(`日志位置：${path}`))}><Icon name="doc"/>查看日志位置</button></div><p className="mono muted">{error}</p></>}</section></main>;
+  const tabs:{key:typeof view;label:string;icon:IconName}[]=[{key:'projects',label:'项目',icon:'project'},{key:'analysis',label:'分析',icon:'scan'},{key:'library',label:'参考库',icon:'library'},{key:'models',label:'模型',icon:'models'},{key:'settings',label:'设置',icon:'settings'}];
+  const tone=status==='error'?'red':status==='done'||status==='completed_with_warnings'?'green':status==='idle'?'muted':'accent';
   return (
     <main className="container">
-      <header className="header">
-        <MraMark/><h1>MRA</h1>
-        <p>参考视频镜头分析与 AE 拆解工具</p>
+      <header className="app-bar">
+        <div className="brand">
+          <MraMark size={26}/>
+          <div><h1>MRA</h1><p>参考视频镜头分析与 AE 拆解工具</p></div>
+        </div>
+
+        <nav className="nav-tabs" aria-label="主导航">
+          {tabs.map(tab=><button key={tab.key} onClick={()=>setView(tab.key)} className={`nav-tab ${view===tab.key?'active':''}`} aria-current={view===tab.key?'page':undefined}><Icon name={tab.icon}/>{tab.label}</button>)}
+        </nav>
+        <div className="toolbar-spacer" />
+        <div className="action-bar">
+          <button onClick={importVideo} disabled={busy} className={!video?'primary':''}>
+            <Icon name="import"/>导入视频
+          </button>
+          <div className="segmented" role="group" aria-label="分析">
+            <button onClick={()=>analyzeVideo('full')} disabled={busy || !video} className={video&&!shots.length?'primary':''}>
+              <Icon name="analyze"/>分析视频
+            </button>
+            <button onClick={()=>analyzeVideo('basic')} disabled={busy||!video} title="仅分镜、运动测量与音频节奏，不调用视觉模型"><Icon name="bolt"/>基础分析</button>
+          </div>
+          <div className="segmented" role="group" aria-label="导出">
+            <button onClick={exportJson} disabled={shots.length === 0}>
+              <Icon name="json"/>导出 JSON
+            </button>
+            <button onClick={exportMarkdown} disabled={shots.length === 0}>
+              <Icon name="doc"/>导出 Markdown
+            </button>
+          </div>
+          <button disabled={busy || !video} onClick={async () => {
+            try { await api.saveProject(); setLibraryNotice("已保存到 参考库"); await refreshStatus(); }
+            catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+          }}><Icon name="save"/>{libraryWarning ? "重试保存" : "保存到参考库"}</button>
+        </div>
       </header>
 
-      <section className="toolbar">
-        <button onClick={()=>setView('projects')} className={view==='projects'?'active':''}><Icon name="project"/>项目</button>
-        <button onClick={() => setView("analysis")} className={view === "analysis" ? "active" : ""}>
-          分析
-        </button>
-        <button onClick={() => setView("library")} className={view === "library" ? "active" : ""}>
-          参考库
-        </button>
-        <button onClick={()=>setView('models')} className={view==='models'?'active':''}><Icon name="models"/>模型</button>
-        <button onClick={()=>setView('settings')} className={view==='settings'?'active':''}><Icon name="settings"/>设置</button>
-        <div className="toolbar-spacer" />
-        <button onClick={importVideo} disabled={busy}>
-          <Icon name="import"/>导入视频
-        </button>
-        <button onClick={()=>analyzeVideo('full')} disabled={busy || !video}>
-          <Icon name="analyze"/>分析视频
-        </button>
-        <button onClick={()=>analyzeVideo('basic')} disabled={busy||!video}>基础分析</button>
-        <button onClick={exportJson} disabled={shots.length === 0}>
-          导出 JSON
-        </button>
-        <button onClick={exportMarkdown} disabled={shots.length === 0}>
-          导出 Markdown
-        </button>
-        <button disabled={busy || !video} onClick={async () => {
-          try { await api.saveProject(); setLibraryNotice("已保存到 参考库"); await refreshStatus(); }
-          catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-        }}>{libraryWarning ? "重试保存" : "保存到参考库"}</button>
-      </section>
-
+      <div className="app-body">
       {view==='projects'&&<ProjectsPage busy={busy} onProjectLoaded={refreshShots} onImport={()=>{setView('analysis');void importVideo()}}/>}
       {view==='models'&&<ModelsPage busy={busy}/>}
       {view==='settings'&&<SettingsPage busy={busy}/>}
       {view === "library" && <LibraryView onLoadProject={refreshShots} busy={busy} onLoadingChange={setLoading} />}
 
       {view === "analysis" && <>
-      {libraryWarning && <div role="alert" className="error-box">{libraryWarning}</div>}
-      {libraryNotice && <p role="status">{libraryNotice}</p>}
+      {(libraryWarning||libraryNotice||error||(!showProgressPanel&&loading))&&<div className="banner-stack">
+        {libraryWarning && <div role="alert" className="alert warn"><Icon name="alert"/><span>{libraryWarning}</span></div>}
+        {libraryNotice && <div role="status" className="alert ok"><Icon name="check"/><span>{libraryNotice}</span></div>}
+        {!showProgressPanel && loading && (
+          <div className="loading alert">
+            <span className="spinner" />
+            <span>处理中… {STATUS_LABELS[status] || status}</span>
+          </div>
+        )}
+        {error && (
+          <div className="error-box alert">
+            <Icon name="alert"/>
+            <div><strong>错误</strong><pre>{error}</pre></div>
+          </div>
+        )}
+      </div>}
 
       {showProgressPanel && <ProgressPanel progress={progress} elapsed={elapsed} />}
 
-      {!showProgressPanel && loading && (
-        <div className="loading">
-          <span className="spinner" />
-          <span>处理中... {STATUS_LABELS[status] || status}</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="error-box">
-          <strong>错误</strong>
-          <pre>{error}</pre>
-        </div>
-      )}
-
-      <section className="status-bar">{STATUS_LABELS[status] || status}{statusMessage && ` · ${statusMessage}`}</section>
       <Workbench key={videoSource} video={video} source={videoSource} shots={shots} selected={selectedShot} audio={audio} summary={rhythmSummary} busy={busy} selections={selections} ensureProject={ensureSelectionProject} onSelectionSubmit={submitSelection}
         onSelect={shot=>setSelectedShotId(shotKey(shot))} onAnalyze={analyzeAudio}
-        detail={selectedShot?<ShotDetail shot={selectedShot}/>:<p className="muted">选择镜头查看画面、运动、文字和制作建议</p>}/>
+        detail={selectedShot?<ShotDetail shot={selectedShot}/>:<div className="empty-state"><Icon name="film" size={28}/><p>选择镜头查看画面、运动、文字和制作建议</p></div>}/>
       </>}
+      </div>
+
+      <footer className="status-bar">
+        <span className={`status-pill ${tone}`}><span className={`dot ${status==='processing'||STAGE_ORDER.includes(status)?'live':''}`}/>{STATUS_LABELS[status] || status}</span>
+        {statusMessage && statusMessage !== STATUS_LABELS[status] && <span className="status-msg">{statusMessage}</span>}
+        <span className="toolbar-spacer"/>
+        {video&&<span className="mono">{video.width}×{video.height} · {video.fps.toFixed(2)} fps · {formatElapsed(Math.round(video.duration))}</span>}
+        {shots.length>0&&<span>{shots.length} 个镜头</span>}
+        <span className="status-endpoint"><span className="dot"/>本地服务已连接</span>
+      </footer>
     </main>
   );
 }
@@ -547,26 +561,29 @@ function ShotDetail({ shot }: { shot: Shot }) {
   const difficulty = recipe.difficulty as Record<string, string> | undefined;
 
   return (
-    <>
-      <h2>
-        {shot.shot_id}
-        <span className="shot-time">
-          {shot.time.start.toFixed(2)}s - {shot.time.end.toFixed(2)}s
-          （持续 {shot.time.duration.toFixed(2)}s）
-        </span>
-      </h2>
+    <div className="shot-detail">
+      <header className="shot-detail-head">
+        <div>
+          <span className="eyebrow">当前镜头</span>
+          <h2>{shot.shot_id}</h2>
+        </div>
+        <div className="shot-time">
+          <span className="tc">{shot.time.start.toFixed(2)}s → {shot.time.end.toFixed(2)}s</span>
+          <span className="chip">时长 {shot.time.duration.toFixed(2)}s</span>
+        </div>
+      </header>
 
       {shot.analysis_error && (
         <section className="detail-section warning">
-          <h3>分析警告</h3>
+          <h3><Icon name="alert"/>分析警告</h3>
           <p>{shot.analysis_error}</p>
         </section>
       )}
 
-      <section className="detail-section"><h3>切镜节奏</h3><CutRhythmView rhythm={shot.rhythm} /></section>
+      <Section icon="wave" title="切镜节奏"><CutRhythmView rhythm={shot.rhythm} /></Section>
 
       <section className="detail-section">
-        <h3>代表帧</h3><div><a href={api.getFrameUrl(shot.shot_id,'contact.jpg',shot.library_id)} target='_blank' rel='noreferrer'>查看联系表</a>{shot.typography_tracks.length>0&&<label><input type='checkbox' checked={overlay} onChange={e=>setOverlay(e.target.checked)}/>文字轨迹平均范围</label>}</div>{overlay&&<p className='muted'>区域为文字轨迹平均范围，非当前帧精确检测</p>}
+        <h3><Icon name="frame"/>代表帧<a className="section-link" href={api.getFrameUrl(shot.shot_id,'contact.jpg',shot.library_id)} target='_blank' rel='noreferrer'>查看联系表</a></h3>{shot.typography_tracks.length>0&&<label className="check-row"><input type='checkbox' checked={overlay} onChange={e=>setOverlay(e.target.checked)}/>文字轨迹平均范围</label>}{overlay&&<p className='muted'>区域为文字轨迹平均范围，非当前帧精确检测</p>}
         <div className="frame-strip">
           {shot.frames.map((frame) => (
             <span className='ocr-overlay' key={frame}><img
@@ -578,49 +595,43 @@ function ShotDetail({ shot }: { shot: Shot }) {
         </div>
       </section>
 
-      <section className="detail-section">
-        <h3>画面观察</h3>{(shot.provider_versions?.vision as {provider?:string}|undefined)?.provider==='disabled'&&<p className='muted'>基础分析已省略视觉模型，仅提供分镜、运动测量和音频节奏</p>}
-        <p>主体: {labelValue("value", observations.subject_type)}</p>
-        <p>主体位置: {labelValue("value", observations.subject_position)}</p>
-        <p>背景类型: {labelValue("value", observations.background_type)}</p>
-        {typeof observations.depth_layers === "number" && (
-          <p>空间层数: {observations.depth_layers}</p>
-        )}
-      </section>
+      <Section icon="sparkle" title="画面观察">{(shot.provider_versions?.vision as {provider?:string}|undefined)?.provider==='disabled'&&<p className='muted'>基础分析已省略视觉模型，仅提供分镜、运动测量和音频节奏</p>}
+        <dl className="kv">
+          <Field label="主体">{labelValue("value", observations.subject_type)}</Field>
+          <Field label="主体位置">{labelValue("value", observations.subject_position)}</Field>
+          <Field label="背景类型">{labelValue("value", observations.background_type)}</Field>
+          {typeof observations.depth_layers === "number" && (
+            <Field label="空间层数">{observations.depth_layers}</Field>
+          )}
+        </dl>
+      </Section>
 
-      <section className="detail-section">
-        <h3>AI 运动解读</h3>
-        <p>类型: {labelValue("value", motion.type)}</p>
-        {typeof motion.strength === "number" && <p>强度: {motion.strength.toFixed(2)}</p>}
-        {typeof motion.confidence === "number" && <p>置信度: {motion.confidence.toFixed(2)}</p>}
-        {motion.description && <p>描述: {motion.description}</p>}
-      </section>
+      <Section icon="move" title="AI 运动解读">
+        <dl className="kv">
+          <Field label="类型">{labelValue("value", motion.type)}</Field>
+          {typeof motion.strength === "number" && <Field label="强度"><Meter value={motion.strength}/></Field>}
+          {typeof motion.confidence === "number" && <Field label="置信度"><Meter value={motion.confidence}/></Field>}
+          {motion.description && <Field label="描述">{motion.description}</Field>}
+        </dl>
+      </Section>
 
-      <section className="detail-section">
-        <h3>运动测量</h3>
+      <Section icon="scan" title="运动测量">
         {measured.status === "ok" ? (
           <>
-            <p>
-              整体缩放: {(measured.scale_change_percent ?? 0) > 0 ? "+" : ""}
-              {(measured.scale_change_percent ?? 0).toFixed(1)}%
-            </p>
-            <p>
-              水平位移: {(measured.translation_x_ratio ?? 0) > 0 ? "+" : ""}
-              {((measured.translation_x_ratio ?? 0) * 100).toFixed(2)}%
-              {" "}({measured.translation_x_px?.toFixed(1) ?? 0}px)
-            </p>
-            <p>
-              垂直位移: {(measured.translation_y_ratio ?? 0) > 0 ? "+" : ""}
-              {((measured.translation_y_ratio ?? 0) * 100).toFixed(2)}%
-              {" "}({measured.translation_y_px?.toFixed(1) ?? 0}px)
-            </p>
-            <p>旋转: {(measured.rotation_deg ?? 0).toFixed(2)}°</p>
-            <p>运动强度: {labelValue('strength',measured.motion_strength)}</p>
-            <p>稳定度: {((measured.stability ?? 0) * 100).toFixed(0)}%</p>
-            {typeof measured.shake_score === "number" && measured.shake_score > 0.1 && (
-              <p>抖动强度: {(measured.shake_score * 100).toFixed(0)}%</p>
-            )}
-            <p>置信度: {((measured.confidence ?? 0) * 100).toFixed(0)}%</p>
+            <div className="metric-grid">
+              <Metric label="整体缩放" value={`${(measured.scale_change_percent ?? 0) > 0 ? "+" : ""}${(measured.scale_change_percent ?? 0).toFixed(1)}%`}/>
+              <Metric label="旋转" value={`${(measured.rotation_deg ?? 0).toFixed(2)}°`}/>
+              <Metric label="水平位移" value={`${(measured.translation_x_ratio ?? 0) > 0 ? "+" : ""}${((measured.translation_x_ratio ?? 0) * 100).toFixed(2)}%`} sub={`${measured.translation_x_px?.toFixed(1) ?? 0}px`}/>
+              <Metric label="垂直位移" value={`${(measured.translation_y_ratio ?? 0) > 0 ? "+" : ""}${((measured.translation_y_ratio ?? 0) * 100).toFixed(2)}%`} sub={`${measured.translation_y_px?.toFixed(1) ?? 0}px`}/>
+            </div>
+            <dl className="kv">
+              <Field label="运动强度">{labelValue('strength',measured.motion_strength)}</Field>
+              <Field label="稳定度"><Meter value={measured.stability ?? 0}/></Field>
+              {typeof measured.shake_score === "number" && measured.shake_score > 0.1 && (
+                <Field label="抖动强度"><Meter value={measured.shake_score} tone="orange"/></Field>
+              )}
+              <Field label="置信度"><Meter value={measured.confidence ?? 0}/></Field>
+            </dl>
             <p className="meta">
               基于 {measured.valid_pair_count ?? 0}/{measured.total_pair_count ?? 0} 有效帧对
               {" "}(CV: {measured.cv_analysis_ms ?? 0}ms)
@@ -628,18 +639,18 @@ function ShotDetail({ shot }: { shot: Shot }) {
           </>
         ) : (
           <>
-            <p>状态: {labelValue("value", measured.status)}</p>
+            <dl className="kv"><Field label="状态">{labelValue("value", measured.status)}</Field></dl>
             {measured.message && <p>{measured.message}</p>}
             <p className="meta">
               {skipped?'此镜头特征点不足，基础分析无法估计其运动':'此镜头无法提供可靠测量，AI运动解读可作为参考'}
             </p>
           </>
         )}
-      </section>
+      </Section>
 
       {summary.conflict && (
         <section className="detail-section conflict">
-          <h3>综合运动 提示</h3>
+          <h3><Icon name="alert"/>综合运动 提示</h3>
           <p>
             AI 判断为 <strong>{labelValue('motion',summary.semantic_type)}</strong>，但 CV 测量倾向于{" "}
             <strong>{labelValue('motion',summary.measured_type)}</strong>。
@@ -648,8 +659,7 @@ function ShotDetail({ shot }: { shot: Shot }) {
         </section>
       )}
 
-      <section className="detail-section">
-        <h3>文字与排版</h3>
+      <Section icon="type" title="文字与排版">
         {shot.typography_tracks && shot.typography_tracks.length > 0 ? (
           <div className="typography-list">
             {shot.typography_tracks.map((track, idx) => (
@@ -658,26 +668,20 @@ function ShotDetail({ shot }: { shot: Shot }) {
                 <p className="typography-text">
                   {track.canonical_text || "（无文字）"}
                 </p>
-                <p>语言: {labelValue("value", track.language)}</p>
-                <p>
-                  时间: {track.start_time.toFixed(2)}s → {track.end_time.toFixed(2)}s
-                  {" "}({track.duration.toFixed(2)}s)
-                </p>
-                <p>位置: {labelValue('position',_positionLabel(track.average_bbox))}</p>
-                {track.typography_analysis && (
-                  <>
-                    <p>
-                      样式: {labelValue('style_family',track.typography_analysis.style_family)} /{" "}
-                      {labelValue('weight',track.typography_analysis.weight)}
-                    </p>
-                    <p>字距: {labelValue('tracking',track.typography_analysis.tracking)}</p>
-                    <p>对齐: {labelValue('alignment',track.typography_analysis.alignment)}</p>
-                    <p>运动: {labelValue("value", track.movement)}</p>
-                    <p>
-                      置信度: {(track.average_confidence * 100).toFixed(0)}%
-                    </p>
-                  </>
-                )}
+                <dl className="kv">
+                  <Field label="语言">{labelValue("value", track.language)}</Field>
+                  <Field label="时间"><span className="mono">{track.start_time.toFixed(2)}s → {track.end_time.toFixed(2)}s ({track.duration.toFixed(2)}s)</span></Field>
+                  <Field label="位置">{labelValue('position',_positionLabel(track.average_bbox))}</Field>
+                  {track.typography_analysis && (
+                    <>
+                      <Field label="样式">{labelValue('style_family',track.typography_analysis.style_family)} / {labelValue('weight',track.typography_analysis.weight)}</Field>
+                      <Field label="字距">{labelValue('tracking',track.typography_analysis.tracking)}</Field>
+                      <Field label="对齐">{labelValue('alignment',track.typography_analysis.alignment)}</Field>
+                      <Field label="运动">{labelValue("value", track.movement)}</Field>
+                      <Field label="置信度"><Meter value={track.average_confidence}/></Field>
+                    </>
+                  )}
+                </dl>
                 <details className="typography-details">
                   <summary>查看 AE 制作建议</summary>
                   <TypographyRecipeView recipe={track} shot={shot} />
@@ -692,36 +696,36 @@ function ShotDetail({ shot }: { shot: Shot }) {
             <p>样式: {labelValue("value", typography.style)}</p>
           </>
         ) : (
-          <p>{(shot.provider_versions?.vision as {provider?:string}|undefined)?.provider==='disabled'?'基础分析已省略视觉、OCR 和排版语义；未执行文字识别':'未检测到文字'}</p>
+          <p className="muted">{(shot.provider_versions?.vision as {provider?:string}|undefined)?.provider==='disabled'?'基础分析已省略视觉、OCR 和排版语义；未执行文字识别':'未检测到文字'}</p>
         )}
-      </section>
+      </Section>
 
-      <section className="detail-section">
-        <h3>视觉效果</h3>
+      <Section icon="sparkle" title="视觉效果">
         {visualEffects.length > 0 ? (
-          <ul>
+          <div className="chip-row">
             {visualEffects.map((effect, idx) => (
-              <li key={idx}>
+              <span key={idx} className="chip accent">
                 {labelValue("value", effect.type)}
-                {typeof effect.confidence === "number" && ` (置信度 ${effect.confidence.toFixed(2)})`}
-              </li>
+                {typeof effect.confidence === "number" && <span className="mono">{effect.confidence.toFixed(2)}</span>}
+              </span>
             ))}
-          </ul>
+          </div>
         ) : (
-          <p>{skipped?'基础分析未执行视觉效果识别':'未检测到明显视觉效果'}</p>
+          <p className="muted">{skipped?'基础分析未执行视觉效果识别':'未检测到明显视觉效果'}</p>
         )}
-      </section>
+      </Section>
 
-      <section className="detail-section">
-        <h3>AE 实现推测</h3>
-        <p>可能方法: {displayRecipeText(hypothesis.possible_method)}</p>
-        <p>可能效果: {displayRecipeText(hypothesis.possible_effect)}</p>
-        <p>可能转场: {displayRecipeText(hypothesis.possible_transition)}</p>
-        {hypothesis.notes && <p>备注: {hypothesis.notes}</p>}
-      </section>
+      <Section icon="layers" title="AE 实现推测">
+        <dl className="kv">
+          <Field label="可能方法">{displayRecipeText(hypothesis.possible_method)}</Field>
+          <Field label="可能效果">{displayRecipeText(hypothesis.possible_effect)}</Field>
+          <Field label="可能转场">{displayRecipeText(hypothesis.possible_transition)}</Field>
+          {hypothesis.notes && <Field label="备注">{hypothesis.notes}</Field>}
+        </dl>
+      </Section>
 
-      <section className="detail-section">
-        <h3>AE 制作建议</h3>
+      <section className="detail-section recipe">
+        <h3><Icon name="layers"/>AE 制作建议{difficulty&&<span className="chip accent section-chip">难度 {labelValue('difficulty',difficulty.ae)}</span>}</h3>
         {recipe.layers && recipe.layers.length > 0 && (
           <>
             <h4>分层建议</h4>
@@ -767,10 +771,26 @@ function ShotDetail({ shot }: { shot: Shot }) {
         {recipe.effects && recipe.effects.length > 0 && (
           <p>可能效果: {recipe.effects.map(displayRecipeText).join("、")}</p>
         )}
-        {difficulty && <p>难度: {labelValue('difficulty',difficulty.ae)}</p>}
       </section>
-    </>
+    </div>
   );
+}
+
+function Section({ icon, title, children }: { icon: IconName; title: string; children: ReactNode }) {
+  return <section className="detail-section"><h3><Icon name={icon}/>{title}</h3>{children}</section>;
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="kv-row"><dt>{label}</dt><dd>{children}</dd></div>;
+}
+
+function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return <div className="metric"><span>{label}</span><strong className="mono">{value}</strong>{sub && <small className="mono">{sub}</small>}</div>;
+}
+
+function Meter({ value, tone }: { value: number; tone?: "orange" }) {
+  const pct = Math.max(0, Math.min(1, value)) * 100;
+  return <span className={`meter ${tone ?? ""}`}><span className="meter-track"><span style={{ width: `${pct}%` }} /></span><span className="mono">{pct.toFixed(0)}%</span></span>;
 }
 
 export default App;

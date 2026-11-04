@@ -1,1 +1,84 @@
-.management-page{padding:20px 24px;flex:1;overflow:auto}.page-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.page-heading h2{font-size:20px}.management-card{background:var(--mra-panel);border:1px solid var(--mra-border);border-radius:4px;padding:16px;margin-bottom:12px}.management-card table{width:100%;border-collapse:collapse;text-align:left}.management-card td,.management-card th{padding:10px 8px;border-bottom:1px solid #3d3d3d;font-size:12px}.management-card th{color:var(--mra-muted);font-weight:normal}.management-card label{display:block;margin:8px 0}.management-card label>input,.management-card label>select{display:block;margin-top:6px;width:min(100%,520px)}.project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}.project-actions{display:flex;gap:6px}.ocr-model-row{padding:8px;border-bottom:1px solid #424242;margin-bottom:8px}.path-control{display:flex;gap:6px}.path-control input{flex:1}.management-page fieldset{border:1px solid #444}.analysis-fields{margin:0}.analysis-fields>div{margin:7px 0}.analysis-fields dt{color:var(--mra-muted);font-size:11px}.analysis-fields dd{margin:3px 0;overflow-wrap:anywhere}
+/* Projects / Models / Settings pages */
+.management-page{flex:1;overflow:auto;padding:28px 32px 40px}
+.management-page>*{max-width:1280px;margin-left:auto;margin-right:auto}
+.page-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:22px}
+.page-heading h2{font-size:24px;font-weight:700;letter-spacing:-.025em;margin:2px 0 4px}
+.page-heading .eyebrow{color:var(--accent)}
+.page-notice{padding:8px 12px;border-radius:var(--r-md);background:var(--bg-2);border:1px solid var(--line);margin-bottom:12px;font-size:12px}
+.page-notice.ok{background:var(--green-soft);border-color:rgba(74,211,160,.3);color:var(--green)}
+
+.management-card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:12px;box-shadow:var(--shadow-1)}
+.management-card>h3,.management-card>legend{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-bottom:6px}
+.management-card>h3 .icon{color:var(--accent)}
+.management-card>p{margin:4px 0;font-size:12.5px}
+.management-card.subtle{background:transparent;border-style:dashed;box-shadow:none}
+.management-card.subtle button{margin-top:10px}
+.management-card table{width:100%;border-collapse:collapse;text-align:left;margin-top:12px}
+.management-card th{padding:8px 10px;font-size:10.5px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--line-strong)}
+.management-card td{padding:11px 10px;border-bottom:1px solid var(--line);font-size:12.5px}
+.management-card td:nth-child(2){font-family:var(--font-mono);color:#fff}
+.management-card tbody tr{transition:background .12s}
+.management-card tbody tr:hover{background:var(--bg-2)}
+.management-card tbody tr:last-child td{border-bottom:0}
+.management-card td button{margin-left:8px;height:26px;font-size:12px}
+.management-card label{display:block;margin:12px 0;font-size:12px;color:var(--text-2)}
+.management-card label>input,.management-card label>select{display:block;margin-top:6px;width:min(100%,520px)}
+
+/* Stat row + project grid */
+.stat-row{display:flex;gap:10px;margin-bottom:16px}
+.stat{flex:0 0 auto;min-width:150px;padding:12px 16px;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md)}
+.stat span{display:block;font-size:11px;color:var(--text-3);margin-bottom:2px}
+.stat strong{font-size:22px;font-weight:600;color:#fff}
+.stat strong i{font-style:normal;font-size:14px;color:var(--text-3)}
+.project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:12px}
+.project-card{display:flex;flex-direction:column;gap:12px;margin:0;transition:border-color .15s,transform .15s var(--ease),box-shadow .15s}
+.project-card:hover{border-color:var(--line-strong);transform:translateY(-2px);box-shadow:var(--shadow-2)}
+.project-card-head{display:flex;gap:12px;align-items:flex-start}
+.project-icon{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,rgba(143,157,255,.25),rgba(91,108,245,.12));color:#c9d0ff;box-shadow:inset 0 0 0 1px var(--accent-line)}
+.project-card-title{min-width:0}
+.project-card-title h3{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all;line-height:1.35}
+.project-card-title p{font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px}
+.project-card-meta{display:flex;flex-wrap:wrap;gap:6px}
+.project-updated{display:flex;align-items:center;gap:5px;font-size:11.5px}
+.project-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:12px;border-top:1px solid var(--line)}
+.project-new{height:auto;min-height:180px;flex-direction:column;gap:6px;border:1.5px dashed var(--line-strong);background:transparent;border-radius:var(--r-lg);color:var(--text-2)}
+.project-new .icon{color:var(--accent);margin-bottom:4px}
+.project-new small{color:var(--text-3);font-weight:400}
+.project-new:hover:not(:disabled){border-color:var(--accent-line);background:var(--accent-soft);color:var(--text)}
+.hero-empty{text-align:center;padding:44px 24px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.hero-icon{display:grid;place-items:center;width:64px;height:64px;border-radius:18px;background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent-line);margin-bottom:8px}
+.hero-empty h3{font-size:17px}
+.steps{list-style:none;display:flex;gap:10px;padding:0;margin:16px 0 0;flex-wrap:wrap;justify-content:center}
+.steps li{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--bg-2);border:1px solid var(--line);font-size:12px;color:var(--text-2)}
+.steps b{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px}
+
+/* Models */
+.status-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+.status-tile{position:relative;display:flex;gap:14px;align-items:flex-start;margin:0}
+.status-tile p{font-size:12.5px;margin:4px 0}
+.status-tile .eyebrow{display:block;margin-bottom:2px}
+.tile-icon{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:var(--bg-3);color:var(--text-2)}
+.tile-dot{position:absolute;top:16px;right:16px;width:8px;height:8px;border-radius:50%;background:var(--bg-4)}
+.status-tile.green .tile-dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+.status-tile.green .tile-icon{background:var(--green-soft);color:var(--green)}
+.status-tile.orange .tile-dot{background:var(--orange);box-shadow:0 0 8px var(--orange)}
+.status-tile.orange .tile-icon{background:var(--orange-soft);color:var(--orange)}
+.status-tile.red .tile-dot{background:var(--red);box-shadow:0 0 8px var(--red)}
+.status-tile.red .tile-icon{background:var(--red-soft);color:var(--red)}
+.ocr-model-row{padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg-2);margin:10px 0}
+.ocr-model-row h4{font-size:13px;margin-bottom:4px}
+.ocr-model-row p{font-family:var(--font-mono);font-size:11px}
+
+/* Settings */
+.settings-page form{display:flex;flex-direction:column}
+.management-page fieldset.management-card{padding-top:16px}
+.management-page fieldset.management-card>legend{float:left;width:100%;padding:0;margin-bottom:6px}
+.management-page fieldset.management-card>legend+*{clear:both}
+.management-page fieldset:disabled{opacity:.6}
+.management-page fieldset>button{margin-top:6px}
+.path-control{display:flex;gap:6px;margin-top:6px;max-width:720px}
+.path-control input{flex:1;font-family:var(--font-mono);font-size:12px}
+.save-bar{position:sticky;bottom:-40px;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:12px 0;margin-top:4px;background:linear-gradient(transparent,var(--bg-0) 35%)}
+.save-bar .primary{height:34px;padding:0 20px}
+
+@media(max-width:1000px){.status-tiles{grid-template-columns:1fr}.management-page{padding:20px}}
