@@ -72,6 +72,15 @@ def test_fractional_23976_frame_rate_keeps_presentation_pts(tmp_path):
     assert locate_frame(path, 1).identity.actual_time == pytest.approx(23 * 1001 / 24000)
 
 
+def test_compositor_microsecond_clock_and_manual_instant_choose_different_frames(tmp_path):
+    path = write_av_video(tmp_path / 'clock.mp4', origin=10, duration=2, audio=False)
+    # 17/24 is displayed as 0.708333 seconds, slightly before its rational PTS.
+    timestamp = .708333
+    assert locate_frame(path, timestamp, direction='presented').identity.actual_time == 17 / 24
+    assert locate_frame(path, timestamp).identity.actual_time == 16 / 24
+    assert locate_frame(path, 1.416667, direction='presented').identity.actual_time == 34 / 24
+
+
 @pytest.mark.parametrize('start,end,duration', [(float('nan'), 1, 2), (0, float('inf'), 2),
                                              (-1, 1, 2), (1, 1, 2), (2, 1, 3), (0, 61, 70), (0, 3, 2)])
 def test_invalid_range_rejected(start, end, duration):

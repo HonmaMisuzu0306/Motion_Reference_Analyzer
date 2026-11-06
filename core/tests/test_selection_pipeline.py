@@ -32,6 +32,7 @@ def test_static_frame_has_exact_evidence_and_no_temporal_conclusions(tmp_path, m
     assert (tmp_path / 'assets/frame.png').exists()
     assert 'motion' not in result['frame'] and 'audio' not in result
     assert result['frame']['ae_recipe']['animation']['status'] == 'not_applicable'
+    assert 'animation_plan' not in result['frame']['ae_recipe']
     assert result['frame']['text_regions'] == [] and 'typography_tracks' not in result['frame']
     forged = StaticVisionAnalysis.model_validate({'motion': {'type': 'push_in'}, 'transition': 'wipe'})
     assert 'motion' not in forged.model_dump() and 'transition' not in forged.model_dump()
@@ -48,6 +49,10 @@ def test_clip_separates_cross_cut_motion_and_retains_source_coordinates(tmp_path
         assert all(shot['time']['start'] <= f['actual_time'] < shot['time']['end'] for f in shot['frame_identities'])
         assert all(Path(tmp_path / 'assets/shots' / shot['shot_id'] / f).exists() for f in shot['frames'])
         assert all(shot['time']['start'] <= r['frame_timestamp'] < shot['time']['end'] for r in shot['text_regions'])
+        if len(shot['frame_identities']) > 1:
+            plan = shot['ae_recipe']['animation_plan']
+            assert plan['source_start'] == shot['time']['start']
+            assert plan['source_end'] == shot['time']['end']
 
 
 def test_one_real_frame_in_clip_does_not_generate_motion_or_animation(tmp_path):
@@ -59,4 +64,5 @@ def test_one_real_frame_in_clip_does_not_generate_motion_or_animation(tmp_path):
     assert shot['motion_summary'].get('fused_confidence', 0) == 0
     assert shot['ae_recipe']['animation']['status'] == 'not_applicable'
     assert 'transform' not in shot['ae_recipe']
+    assert 'animation_plan' not in shot['ae_recipe']
     assert result['partial_failures']

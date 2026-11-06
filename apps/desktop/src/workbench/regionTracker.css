@@ -1,0 +1,24 @@
+.roi-form p { margin: .55rem 0; }
+.roi-form code { overflow-wrap: anywhere; }
+.roi-form label { display: inline-flex; flex-direction: column; margin: .2rem .45rem .3rem 0; }
+.roi-form input { width: 7em; }
+.roi-form button { margin: .2rem .45rem .3rem 0; }
+.roi-form fieldset { margin: .5rem 0; min-width: 0; }
+.roi-picture { position: relative; margin: .4rem 0; touch-action: none; user-select: none; cursor: crosshair; }
+.roi-picture img { display: block; width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; }
+.roi-picture svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.roi-box { position: absolute; box-sizing: border-box; border: 2px solid #75e7ff; outline: 1px solid #1b2530; pointer-events: none; }
+.roi-box[data-pin]::before { content: attr(data-pin); position: absolute; left: 0; top: 0; padding: 0 .25em; background: #172830; color: #75e7ff; font: bold 11px/1.3 sans-serif; }
+.roi-box-B { border-color: #ffda79; border-style: dashed; }
+.roi-box[data-pin="B"]::before { color: #ffda79; }
+.roi-form .roi-plane-consent { display: flex; flex-direction: row; align-items: flex-start; gap: .4em; }
+.roi-plane-consent input { width: auto; flex: none; }
+.roi-pinned, .roi-pair { margin: .55em 0; }
+.roi-pinned strong { color: #75e7ff; }
+.roi-review { margin-top: .6rem; border-top: 1px solid #52626e; padding-top: .45rem; }
+.roi-review select { max-width: 100%; }
+.roi-review-picture { cursor: default; touch-action: auto; }
+.roi-center { position: absolute; width: 19px; height: 19px; transform: translate(-50%, -50%); pointer-events: none; }
+.roi-center::before, .roi-center::after { content: ''; position: absolute; background: #78fff1; box-shadow: 0 0 0 1px #163532; }
+.roi-center::before { left: 0; top: 8px; width: 19px; height: 3px; }
+.roi-center::after { left: 8px; top: 0; width: 3px; height: 19px; }

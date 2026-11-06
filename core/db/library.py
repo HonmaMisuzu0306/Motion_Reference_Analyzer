@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from typing import Any
 
 from db.automatic_tags import automatic_tags
@@ -17,6 +18,10 @@ from db.shots import ShotRepository
 from db.tags import TagRepository
 
 logger = logging.getLogger(__name__)
+
+
+class SourceIdentityMismatch(ValueError):
+    """The result's captured source does not match the target project or file."""
 
 
 class ReferenceLibrary:
@@ -215,11 +220,18 @@ class ProjectRepository:
         name = data.get("project_name", "untitled")
         source = data.get("video_path")
         path = resolve_path(source)
+        captured = data.get("source_hash") or None
+        if captured is not None:
+            if not isinstance(captured, str) or not re.fullmatch(r'[0-9a-fA-F]{64}', captured):
+                raise ValueError("已验证的视频内容身份无效，请重新导入")
+            captured = captured.lower()
         known_id = data.get("library_project_id")
         if known_id is not None:
             known = self.get(known_id)
             if known is None:
                 raise ValueError("已保存项目不存在，请重新打开项目")
+            if captured is not None and captured != known.video_hash:
+                raise SourceIdentityMismatch("分析来源与已保存项目不一致，请重新导入为新项目，旧分析保持原样")
             if (
                 path
                 and path.is_file()
@@ -227,7 +239,14 @@ class ProjectRepository:
                 and not known.video_hash.startswith("legacy:")
             ):
                 if video_hash(path) != known.video_hash:
-                    raise ValueError("源视频内容已改变，请重新导入为新项目，旧分析保持原样")
+                    raise SourceIdentityMismatch("源视频内容已改变，请重新导入为新项目，旧分析保持原样")
+            if captured and video and path and path.is_file():
+                self._conn.execute(
+                    "UPDATE projects SET video_width=?,video_height=?,video_duration=?,video_fps=? WHERE id=?",
+                    (video['width'], video['height'], video['duration'], video['fps'], known_id),
+                )
+                self._conn.execute("UPDATE videos SET metadata_json=? WHERE content_hash=?",
+                                   (json.dumps(video), captured))
             # Update the exact persisted identity even if the original file disappeared.
             # Never create a legacy hash/new row for an already-saved project.
             self._conn.execute(
@@ -245,9 +264,12 @@ class ProjectRepository:
             if commit:
                 self._conn.commit()
             return known_id
-        # Missing historical source: keep a stable legacy identity without claiming a content hash.
         digest = video_hash(path) if path and path.is_file() else None
-        identity = digest or "legacy:" + hashlib.sha256(f"{name}:{source}".encode()).hexdigest()
+        if captured is not None and digest is not None and digest != captured:
+            raise SourceIdentityMismatch("源视频内容已改变，请重新导入为新项目，旧分析保持原样")
+        # A missing file does not erase the identity verified during analysis.
+        # Only historical objects without that evidence need a legacy identity.
+        identity = captured or digest or "legacy:" + hashlib.sha256(f"{name}:{source}".encode()).hexdigest()
         self._conn.execute(
             """INSERT INTO videos(content_hash,source_path,metadata_json) VALUES (?,?,?)
             ON CONFLICT(content_hash) DO UPDATE SET source_path=excluded.source_path,metadata_json=excluded.metadata_json""",

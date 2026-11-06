@@ -37,6 +37,9 @@ class SelectionJobs:
             result = run_selection(snapshot, lambda *args: self.store.update_progress(snapshot.record_id, *args))
             if video_hash(snapshot.source_path) != snapshot.source_hash:
                 raise ValueError('分析期间源视频内容改变，结果未发布，请重新导入')
+            if snapshot.display_geometry is not None:
+                width, height, fps = snapshot.display_geometry
+                result['display_geometry'] = {'width': width, 'height': height, 'fps': fps}
             self.store.finish(snapshot.record_id, result, result['versions'], result['warnings'])
         except Exception as exc:
             logger.exception('Selection job failed')

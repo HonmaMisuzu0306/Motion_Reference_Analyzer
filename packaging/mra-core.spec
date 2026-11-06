@@ -1,8 +1,14 @@
 from pathlib import Path
+import ssl
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
 root = Path(SPECPATH).parent
 datas, binaries, hiddenimports = [], [], []
+# Some Python distributions load an additional trust-policy PEM beside ssl.py.
+# Preserve that policy in the frozen runtime rather than disabling verification.
+ssl_policy = Path(ssl.__file__).with_name('codex-rejected-cas.pem')
+if ssl_policy.is_file():
+    datas.append((str(ssl_policy), '.'))
 # PaddleX checks distribution metadata before constructing its OCR pipeline.
 # Importable modules alone do not satisfy its ocr-core dependency check.
 for dependency in ['imagesize', 'opencv-contrib-python', 'pyclipper',

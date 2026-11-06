@@ -7,20 +7,24 @@ from PIL import Image
 
 from audio.rhythm import apply_rhythm
 from cv import analyze_shot_motion, fuse_motion
+from cv.cache import CV_ALGORITHM_VERSION
 from ocr import OCRCache, ShotOCRAnalyzer, create_ocr_provider
 from ocr.semantic import TypographyCache, TypographySemanticAnalyzer
 from recipe.ae_recipe import generate_ae_recipe
+from recipe.keyframes import RECIPE_VERSION
 from schemas import Shot
+from selection.blend import MAX_SECONDS, METHOD, BlendSamples
 from selection.frames import locate_frame
 from selection.media import analyze_range_audio, detect_range_scenes, sample_range_frames
 from selection.models import JobSnapshot
 from selection.static import STATIC_PROMPT_VERSION, StaticVisionAnalysis, static_recipe
+from video.scene_features import SCENE_DETECT_VERSION
 from vision.analyzer import ShotAnalyzer, update_shot_with_analysis
 from vision.cache import VisionCache
 from vision.factory import create_vision_provider
 from vision.prompts import PROMPT_VERSION
 
-PIPELINE_VERSION = 'selection-pipeline-v2'
+PIPELINE_VERSION = 'selection-pipeline-v7-two-held-pictures'
 
 
 def _cache_root(snapshot, versions):
@@ -41,14 +45,49 @@ def _save(frame, path):
     Image.fromarray(frame.image[:, :, ::-1]).save(path)
 
 
+def _measure_clip(snapshot, result, report):
+    start, end = snapshot.request.start, snapshot.request.end
+    result['time'] = {'start': start, 'end': end, 'duration': end - start}
+    report('scenes', 0, 1, '检查选区内的切镜与叠化')
+    blend = BlendSamples() if end - start <= MAX_SECONDS else None
+    dedicated = snapshot.request.measurement == 'opacity_blend'
+    ranges = detect_range_scenes(snapshot.source_path, start, end, blend, review_boundary=dedicated)
+    if blend is not None and (len(ranges) == 1 or (dedicated and len(ranges) == 2)):
+        boundary = ranges[1].start if len(ranges) == 2 else None
+        estimate = blend.estimate(end, boundary=boundary)
+        if estimate is not None:
+            result['opacity_blend'] = estimate
+        elif dedicated and boundary is not None:
+            result['measurement_message'] = blend.skip_message or '选区中检测到切镜。请缩短到一次连续过渡。'
+        elif dedicated:
+            result['measurement_message'] = blend.skip_message or (
+                '未取得可靠的全画面混合曲线。请选取一次叠化，并在两端各保留至少 0.15 秒静止画面。')
+    elif snapshot.request.measurement:
+        result['measurement_message'] = '选区中检测到切镜。请缩短到一次连续过渡。'
+    return ranges
+
+
 def run_selection(snapshot: JobSnapshot, report) -> dict:
     config, assets, request = snapshot.config, snapshot.assets_dir, snapshot.request
     assets.mkdir(parents=True, exist_ok=True)
+    if request.measurement == 'opacity_blend':
+        result = {'schema_version': 1, 'kind': 'clip', 'source_hash': snapshot.source_hash,
+                  'measurement': request.measurement, 'versions': {'pipeline': PIPELINE_VERSION, 'opacity_blend': METHOD},
+                  'warnings': [], 'partial_failures': []}
+        _measure_clip(snapshot, result, report)
+        report('saving', 1, 1, '保存叠化测量')
+        return result
     provider, ocr = create_vision_provider(config), create_ocr_provider(config)
     versions = {'pipeline': PIPELINE_VERSION, 'vision': provider.get_model_info(), 'ocr': ocr.get_model_info(),
                 'prompt': STATIC_PROMPT_VERSION if request.kind == 'frame' else PROMPT_VERSION,
                 'video_clock': {'version': 'video-relative-v1'}, 'sampling': 'actual-pts-half-open-v1'}
     versions['model_identity'] = snapshot.model_identity
+    if request.kind == 'clip':
+        versions['opacity_blend'] = METHOD
+        versions['scene_detection'] = SCENE_DETECT_VERSION
+        versions['recipe'] = RECIPE_VERSION
+        versions['cv'] = {'version': CV_ALGORITHM_VERSION, 'target_fps': config.cv_target_fps,
+                          'max_long_edge': config.cv_max_long_edge}
     cache_root = _cache_root(snapshot, versions)
     warnings, partial_failures = [], []
     result = {'schema_version': 1, 'kind': request.kind, 'source_hash': snapshot.source_hash,
@@ -100,9 +139,7 @@ def run_selection(snapshot: JobSnapshot, report) -> dict:
                            'ae_recipe': static_recipe(analysis, regions)}
         warnings.append('单帧仅分析静态信息；运动、转场、动画和节奏不适用')
     else:
-        result['time'] = {'start': request.start, 'end': request.end, 'duration': request.end - request.start}
-        report('scenes', 0, 1, '检测选区内部切镜')
-        ranges = detect_range_scenes(snapshot.source_path, request.start, request.end)
+        ranges = _measure_clip(snapshot, result, report)
         shots, identities, static_analyses = [], {}, {}
         analyzer = ShotAnalyzer(provider, VisionCache(cache_root / 'vision'), config.vision_max_retries)
         ocr_analyzer = ShotOCRAnalyzer(ocr, OCRCache(cache_root / 'ocr'), config.ocr_target_fps,

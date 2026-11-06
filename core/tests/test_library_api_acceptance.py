@@ -8,8 +8,6 @@ from app.config import reset_config
 from app.main import app
 from db.connection import set_db_path
 
-SAMPLE = Path(__file__).resolve().parents[2] / 'samples/test_typography.mp4'
-
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -26,13 +24,13 @@ def client(tmp_path, monkeypatch):
     reset_config()
 
 
-def analyze(client):
-    assert client.post('/api/v1/video/import', json={'path': str(SAMPLE)}).status_code == 200
+def analyze(client, sample_video):
+    assert client.post('/api/v1/video/import', json={'path': str(sample_video)}).status_code == 200
     assert client.post('/api/v1/video/analyze').status_code == 200
 
 
-def test_manual_save_search_inspector_media_recipe_and_restart(client):
-    analyze(client)
+def test_manual_save_search_inspector_media_recipe_and_restart(client, sample_video):
+    analyze(client, sample_video)
     assert client.get('/api/v1/library/projects').json()['projects'] == []
     saved = client.post('/api/v1/library/save')
     assert saved.status_code == 200, saved.text
@@ -42,6 +40,9 @@ def test_manual_save_search_inspector_media_recipe_and_restart(client):
     sid = found[0]['id']
     detail = client.get(f'/api/v1/library/shots/{sid}').json()
     assert detail['ae_recipe']
+    assert detail['measured_motion']['sampling_target_fps'] == 8
+    assert detail['ae_recipe']['measured_motion']['sampling_target_fps'] == 8
+    assert detail['ae_recipe']['animation_plan']['source_start'] == detail['start_time']
     assert detail['observations'] != detail['ae_hypothesis']
     assert client.get(f'/api/v1/library/shots/{sid}/thumbnail').status_code == 200
     assert client.get(f'/api/v1/library/shots/{sid}/recipe').json() == detail['ae_recipe']
@@ -56,16 +57,21 @@ def test_manual_save_search_inspector_media_recipe_and_restart(client):
     assert client.get(f'/api/v1/library/shots/{sid}').json()['manual_tags'] == ['favorite']
     assert client.post(f'/api/v1/library/projects/{pid}/load').status_code == 200
     assert client.get('/api/v1/shots').json()['shots'][0]['ae_recipe']
+    exported_project = client.post('/api/v1/export/json').json()
+    reloaded = json.loads(Path(exported_project['path']).read_text(encoding='utf-8'))
+    assert reloaded['shots'][0]['measured_motion']['sampling_target_fps'] == 8
+    report = client.post('/api/v1/export/markdown').json()
+    assert '目标采样率：8 帧/秒' in Path(report['path']).read_text(encoding='utf-8')
 
 
-def test_sqlite_failure_preserves_analysis_and_retry(client, monkeypatch):
+def test_sqlite_failure_preserves_analysis_and_retry(client, monkeypatch, sample_video):
     from app.config import get_config
     get_config().auto_save_to_library = True
     real = api._get_library
     def fail():
         raise OSError('disk unavailable')
     monkeypatch.setattr(api, '_get_library', fail)
-    analyze(client)
+    analyze(client, sample_video)
     status = client.get('/api/v1/project/status').json()
     assert status['status'] == 'completed_with_warnings'
     assert 'disk unavailable' in status['library_warning']
@@ -76,7 +82,7 @@ def test_sqlite_failure_preserves_analysis_and_retry(client, monkeypatch):
     assert client.get('/api/v1/project/status').json()['library_warning'] == ''
 
 
-def test_typography_failure_keeps_recipe_and_marks_warning(client, monkeypatch):
+def test_typography_failure_keeps_recipe_and_marks_warning(client, monkeypatch, sample_video):
     from ocr.provider import MockOCRProvider
     from schemas.typography import TextRegion, TypographyAnalysis
     from vision.mock import MockVisionProvider
@@ -89,14 +95,14 @@ def test_typography_failure_keeps_recipe_and_marks_warning(client, monkeypatch):
     monkeypatch.setattr(api, 'create_ocr_provider', lambda config: DetectedText())
     monkeypatch.setattr(MockVisionProvider, 'analyze_text_region',
                         lambda *args: TypographyAnalysis(analysis_error='VLM unavailable'))
-    analyze(client)
+    analyze(client, sample_video)
     status = client.get('/api/v1/project/status').json()
     assert status['status'] == 'completed_with_warnings'
     assert status['progress']['stages']['typography_analysis']['failed'] > 0
     assert client.get('/api/v1/shots').json()['shots'][0]['ae_recipe']
 
 
-def test_loaded_versions_keep_distinct_details_and_frames(client, tmp_path):
+def test_loaded_versions_keep_distinct_details_and_frames(client, tmp_path, sample_video):
     from schemas import Project, Shot, TimeRange, VideoInfo
 
     lib = api._get_library()
@@ -108,9 +114,9 @@ def test_loaded_versions_keep_distinct_details_and_frames(client, tmp_path):
         shots.append(Shot(shot_id='shot_001', time=TimeRange(start=0, end=1, duration=1),
                           frames=[str(frame)], analysis_version=version,
                           observations={'description': version}))
-    pid = lib.save_analysis(Project(project_name='history', video_path=str(SAMPLE),
-                           video=VideoInfo(filename=SAMPLE.name, duration=5, width=1280,
-                                           height=720, fps=24, codec='h264'), shots=shots))
+    pid = lib.save_analysis(Project(project_name='history', video_path=str(sample_video),
+                           video=VideoInfo(filename=sample_video.name, duration=5, width=320,
+                                           height=240, fps=24, codec='h264'), shots=shots))
     assert client.post(f'/api/v1/library/projects/{pid}/load').status_code == 200
     loaded = client.get('/api/v1/shots').json()['shots']
     assert len({s['library_id'] for s in loaded}) == 2
@@ -124,8 +130,8 @@ def test_loaded_versions_keep_distinct_details_and_frames(client, tmp_path):
                       params={'library_id': 999999}).status_code == 404
 
 
-def test_reanalysis_keeps_archived_frame_assets(client, monkeypatch):
-    assert client.post('/api/v1/video/import', json={'path': str(SAMPLE)}).status_code == 200
+def test_reanalysis_keeps_archived_frame_assets(client, monkeypatch, sample_video):
+    assert client.post('/api/v1/video/import', json={'path': str(sample_video)}).status_code == 200
     monkeypatch.setattr(api, 'detect_scenes', lambda path: [
         {'shot_id': 'shot_001', 'start': 0, 'end': 1, 'duration': 1}])
     assert client.post('/api/v1/video/analyze').status_code == 200

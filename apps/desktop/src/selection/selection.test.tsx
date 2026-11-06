@@ -40,6 +40,17 @@ describe('局部分析选择', () => {
   expect(rangeError(0,61,70)).toBeTruthy();
   expect(rangeError(10,13.5,20)).toBe('');
  });
+ it('短选区可单独测量叠化，超出六秒仍可分析普通片段', async()=>{
+  const submit=vi.fn().mockResolvedValue(undefined);
+  render(<SelectionControls duration={20} source="video" playhead={0} selected={null} busy={false}
+   ensureProject={async()=>1} captureTime={async()=>0} onSubmit={submit} onPlay={()=>{}}/>);
+  const measure=screen.getByRole('button',{name:'测量叠化'}) as HTMLButtonElement;
+  fireEvent.click(measure);
+  await waitFor(()=>expect(submit).toHaveBeenCalledWith({kind:'clip',start:0,end:5,measurement:'opacity_blend'}));
+  fireEvent.change(screen.getByLabelText('出点（秒）'),{target:{value:'7'}});
+  expect(measure.disabled).toBe(true);
+  expect((screen.getByRole('button',{name:'分析片段'}) as HTMLButtonElement).disabled).toBe(false);
+ });
  it('忙碌期间禁用提交',()=>{
   render(<SelectionControls duration={20} source="video" playhead={0} selected={null} busy
    ensureProject={async()=>1} captureTime={async()=>0} onSubmit={async()=>{}} onPlay={()=>{}}/>);

@@ -1,0 +1,15 @@
+.motion-trajectory{margin:10px 0;padding:10px;border:1px solid var(--mra-border,#3a3a3a);border-radius:4px;background:var(--mra-bg,#181818);min-width:0}
+.motion-trajectory-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.motion-trajectory-header h4{margin:0}
+.motion-trajectory-controls{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.motion-trajectory-controls button{flex:1;min-width:64px;padding:4px 6px;font-size:12px}
+.motion-trajectory-controls button[aria-pressed=true]{background:#284664;border-color:var(--mra-accent,#67a9e8);color:#e6f2ff}
+.motion-trajectory svg{display:block;width:100%;height:auto;max-height:230px;overflow:visible}
+.motion-trajectory svg text{fill:var(--mra-muted,#b5b5b5);font-size:14px}
+.motion-trajectory-grid{stroke:var(--mra-border,#3a3a3a);stroke-width:1}
+.motion-trajectory-line{fill:none;stroke:var(--mra-accent,#67a9e8);stroke-width:2;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.motion-trajectory-point{fill:var(--mra-accent,#67a9e8)}
+.motion-trajectory-summary{font-variant-numeric:tabular-nums;font-size:12px}
+.motion-trajectory p{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.motion-trajectory-notice{color:#f0c58e}
+.motion-trajectory-empty h4{margin-top:0}

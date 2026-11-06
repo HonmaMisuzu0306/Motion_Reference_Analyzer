@@ -1,0 +1,28 @@
+.animation-plan{margin:12px 0;min-width:0}
+.animation-plan-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.animation-plan-header h4{margin:0}
+.animation-plan-source{padding:2px 6px;border:1px solid var(--mra-border,#3a3a3a);border-radius:3px;color:var(--mra-muted,#b5b5b5);font-size:12px}
+.animation-plan p,.animation-plan li{font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.animation-curve{margin:10px 0;padding:10px;border:1px solid var(--mra-border,#3a3a3a);border-radius:4px;background:var(--mra-bg,#181818)}
+.animation-curve p{margin:6px 0}
+.animation-curve-range,.animation-curve-table{font-variant-numeric:tabular-nums}
+.animation-curve svg{display:block;width:100%;height:auto;max-height:120px}
+.animation-curve svg text{fill:var(--mra-muted,#b5b5b5);font-size:13px}
+.animation-curve-axis{stroke:var(--mra-border,#3a3a3a)}
+.animation-curve-line{fill:none;stroke:var(--mra-accent,#67a9e8);stroke-width:2;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.animation-curve-point{fill:var(--mra-accent,#67a9e8)}
+.animation-curve-toggle{margin-top:4px;font-size:12px}
+.animation-curve-table{margin-top:8px;overflow-x:auto}
+.animation-curve-table table{width:100%;border-collapse:collapse;font-size:12px;text-align:right}
+.animation-curve-table caption{text-align:left;margin:4px 0;color:var(--mra-muted,#b5b5b5)}
+.animation-curve-table th,.animation-curve-table td{padding:5px 6px;border-bottom:1px solid var(--mra-border,#3a3a3a);white-space:nowrap}
+.animation-curve-table th:first-child,.animation-curve-table td:first-child{text-align:left}
+.animation-curve-pages{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:8px;font-size:12px}
+.animation-curve-pages button{font-size:12px}
+.animation-plan-notice{color:#f0c58e}
+.animation-plan-notes summary{cursor:pointer;font-size:12px}
+.animation-plan-notes ul{padding-left:18px}
+.animation-plan-notes li{margin-bottom:6px}
+.animation-plan-export{margin-top:12px}
+.animation-plan-export-result{border-left:2px solid var(--mra-accent,#67a9e8);padding-left:8px}
+.animation-plan-export-result code{white-space:normal;user-select:text}

@@ -3,6 +3,9 @@ from typing import Any
 
 import av
 
+from video.orientation import display_dimensions
+from video.timing import picture_end
+
 
 def read_video_metadata(video_path: str | Path) -> dict[str, Any]:
     """读取视频元数据，返回时长、分辨率、帧率、编码等信息。"""
@@ -18,19 +21,26 @@ def read_video_metadata(video_path: str | Path) -> dict[str, Any]:
         if video_stream is None:
             raise ValueError(f"未找到视频流: {path}")
 
-        duration = float(container.duration / av.time_base) if container.duration else 0.0
+        # Selection and scene boundaries use the video clock. Audio can start
+        # earlier or end later, so the container length may include no picture.
+        if video_stream.duration is not None:
+            duration = float(video_stream.duration * video_stream.time_base)
+        else:
+            # Matroska often omits the stream duration. Read compressed packet
+            # timestamps in presentation order by taking the maximum (B-frames).
+            duration = max((picture_end(video_stream, packet) for packet in container.demux(video_stream)
+                            if packet.pts is not None), default=0.0)
         fps = float(video_stream.average_rate) if video_stream.average_rate else 0.0
-        width = video_stream.codec_context.width
-        height = video_stream.codec_context.height
+        width, height = display_dimensions(video_stream)
         codec = video_stream.codec_context.codec.name if video_stream.codec_context.codec else "unknown"
         bitrate = container.bit_rate or 0
 
         return {
             "filename": path.name,
-            "duration": round(duration, 3),
+            "duration": duration,
             "width": width,
             "height": height,
-            "fps": round(fps, 3),
+            "fps": fps,
             "codec": codec,
             "bitrate": bitrate,
             "has_audio": any(s.type == "audio" for s in container.streams),

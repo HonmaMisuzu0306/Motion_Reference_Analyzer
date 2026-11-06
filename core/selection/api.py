@@ -13,6 +13,7 @@ from app.config import get_config
 from app.runtime_paths import get_runtime_paths
 from db.connection import get_db_path
 from db.paths import resolve_path, video_hash
+from recipe.ae_recipe import shot_for_display
 from selection.frames import locate_frame
 from selection.jobs import SelectionJobs
 from selection.models import JobSnapshot, SelectionRequest, validate_range
@@ -61,7 +62,7 @@ def startup_recover():
 
 @router.get('/projects/{pid}/frame-position')
 def frame_position(pid: int, time: float = Query(ge=0, allow_inf_nan=False), pts: int | None = None,
-                   direction: Literal['current', 'previous', 'next'] = 'current'):
+                   direction: Literal['current', 'previous', 'next', 'presented'] = 'current'):
     path, digest = _source(pid, fresh=False)
     try:
         resolved = locate_frame(path, time, pts=pts, direction=direction)
@@ -123,6 +124,7 @@ def submit(pid: int, request: SelectionRequest):
     def snapshot_factory():
         path, digest = _source(pid)
         config = get_config().model_copy(deep=True)
+        geometry = None
         if request.kind == 'frame':
             with _preview_lock:
                 preview = _previews.get(request.preview_token)
@@ -132,14 +134,16 @@ def submit(pid: int, request: SelectionRequest):
                 raise HTTPException(400, '帧时间无效')
         else:
             try:
-                validate_range(request.start, request.end, read_video_metadata(path)['duration'])
+                meta = read_video_metadata(path)
+                validate_range(request.start, request.end, meta['duration'])
+                geometry = (meta['width'], meta['height'], meta['fps'])
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
-        identity = _preflight(config)
+        identity = '' if request.measurement else _preflight(config)
         rid = str(uuid4())
         assets = get_runtime_paths().data_root / 'selections' / str(pid) / rid
         store.create(pid, request.kind, digest, request.model_dump(mode='json'), str(assets), record_id=rid)
-        return JobSnapshot(pid, path, digest, request, config, rid, assets, identity)
+        return JobSnapshot(pid, path, digest, request, config, rid, assets, identity, geometry)
 
     return {'record_id': SelectionJobs(store, api._project_operation_lock).submit(snapshot_factory)}
 
@@ -158,10 +162,28 @@ def _get_record(rid: str):
     return value
 
 
+def _record_geometry(result, project):
+    geometry = result.get('display_geometry')
+    if geometry is None:
+        return project.video_width, project.video_height, project.video_fps
+    if not isinstance(geometry, dict):
+        raise HTTPException(409, '记录的视频尺寸无效')
+    return geometry.get('width'), geometry.get('height'), geometry.get('fps')
+
+
+def _derive_clip_plan(value, project):
+    if value['kind'] == 'clip' and value['status'] in ('done', 'completed_with_warnings'):
+        result = value['result']
+        width, height, _ = _record_geometry(result, project)
+        result['shots'] = [shot_for_display(shot, width, height)
+                           for shot in result.get('shots', [])]
+
+
 @router.get('/selection-analyses/{rid}')
 def record(rid: str):
     value = _get_record(rid)
     project = _project(value['project_id'])
+    _derive_clip_plan(value, project)
     source = resolve_path(project.video_path)
     try:
         value['source_available'] = bool(source and source.is_file() and source_digest(source, hasher=video_hash) == value['source_hash'])
@@ -198,7 +220,7 @@ def asset(rid: str, name: str):
 
 
 class ExportRequest(BaseModel):
-    format: Literal['json', 'markdown']
+    format: Literal['json', 'markdown', 'ae_blend']
 
 
 @router.post('/selection-analyses/{rid}/export')
@@ -206,7 +228,36 @@ def export(rid: str, request: ExportRequest):
     from selection.export import export_selection
 
     try:
-        path = export_selection(record(rid), request.format, get_runtime_paths().exports / 'selections')
+        value = _get_record(rid)
+        directory = get_runtime_paths().exports / 'selections'
+        if request.format == 'ae_blend':
+            from selection.opacity_package import export_opacity_package
+
+            project = _project(value['project_id'])
+            source = resolve_path(project.video_path)
+            if source is None:
+                raise HTTPException(404, '源视频缺失，请先重新关联原片')
+            path = export_opacity_package(value, source, directory)
+            return {'path': str(path)}
+        if request.format == 'markdown':
+            _derive_clip_plan(value, _project(value['project_id']))
+        path = export_selection(value, request.format, directory)
         return {'path': str(path)}
+    except FileNotFoundError as exc:
+        raise HTTPException(404, '文件已移除，请检查源视频和导出目录') from exc
+    except OSError as exc:
+        raise HTTPException(409, f'无法读取素材或写入导出目录：{exc}') from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+@router.post('/selection-analyses/{rid}/shots/{shot_id}/export/ae')
+def export_motion_script(rid: str, shot_id: str, padded: bool = False):
+    value = _get_record(rid)
+    if value['status'] not in ('done', 'completed_with_warnings') or value['kind'] != 'clip':
+        raise HTTPException(409, '仅已完成的片段分析支持动画脚本')
+    shot = next((s for s in value['result'].get('shots', []) if s.get('shot_id') == shot_id), None)
+    if shot is None:
+        raise HTTPException(404, '片段镜头不存在')
+    project = _project(value['project_id'])
+    return api._export_motion_script(shot, *_record_geometry(value['result'], project), padded=padded)

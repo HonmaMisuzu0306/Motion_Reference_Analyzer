@@ -5,11 +5,23 @@ from pathlib import Path
 
 import numpy as np
 
-from audio.cache import AudioCache
+from audio.cache import AudioCache, source_digest
 from audio.decoder import decode_audio
 from schemas.audio import AudioAnalysis, AudioPoint
 
 METHOD = 'librosa-beat-onset-v2-video-clock'
+
+
+def _source_identity(path: Path) -> str:
+    try:
+        return source_digest(path)
+    except OSError as exc:
+        raise ValueError(f'无法读取音频源文件内容，未发布结果或写入缓存: {exc}') from exc
+
+
+def _verify_source(path: Path, expected: str) -> None:
+    if _source_identity(path) != expected:
+        raise ValueError('音频分析期间源文件内容已改变，未发布结果或写入缓存，请重新分析')
 
 
 def analyze_audio(path: Path, *, sample_rate: int = 22050, hop_length: int = 256,
@@ -17,14 +29,17 @@ def analyze_audio(path: Path, *, sample_rate: int = 22050, hop_length: int = 256
                   force: bool = False) -> AudioAnalysis:
     result = AudioAnalysis(sample_rate=sample_rate, hop_length=hop_length)
     try:
+        path = Path(path)
+        source_hash = _source_identity(path)
         result.library_version = version('librosa')
         key = None
         if cache:
-            key = cache.key(Path(path), method=METHOD, library=result.library_version,
+            key = cache.key(path, source_hash=source_hash, method=METHOD, library=result.library_version,
                             sample_rate=sample_rate, hop_length=hop_length, max_duration=max_duration)
             if not force and (cached := cache.get(key)):
+                _verify_source(path, source_hash)
                 return cached
-        decoded = decode_audio(Path(path), sample_rate, max_duration)
+        decoded = decode_audio(path, sample_rate, max_duration)
         result.audio_start = decoded.audio_start
         result.video_origin = decoded.video_origin
         result.stream_index = decoded.stream_index
@@ -61,6 +76,9 @@ def analyze_audio(path: Path, *, sample_rate: int = 22050, hop_length: int = 256
                 else:
                     result.beat_times = []
                     result.status, result.message = 'insufficient', '未检测到足够的节拍；保留瞬态事件供参考'
+        # Whole-media checks are once per audio request, never once per shot.
+        # The same guard is required when caching is disabled or forced.
+        _verify_source(path, source_hash)
         if cache and key:
             try:
                 cache.set(key, result)

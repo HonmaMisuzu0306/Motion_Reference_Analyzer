@@ -14,17 +14,12 @@ os.environ["OCR_PROVIDER"] = "mock"
 from app.main import app  # noqa: E402, I001
 
 
-SAMPLE_VIDEO = Path(__file__).parent.parent.parent / "samples" / "test_typography.mp4"
-
-
-def test_import_and_analyze_sample_video():
+def test_import_and_analyze_sample_video(sample_video):
     """端到端：导入样本视频并完成分析，确认进度与 Shot 结构完整。"""
-    assert SAMPLE_VIDEO.exists(), f"样本视频不存在: {SAMPLE_VIDEO}"
-
     client = TestClient(app)
 
     # 1. 导入视频
-    res = client.post("/api/v1/video/import", json={"path": str(SAMPLE_VIDEO)})
+    res = client.post("/api/v1/video/import", json={"path": str(sample_video)})
     assert res.status_code == 200
     data = res.json()
     assert data["status"] == "ok"
@@ -52,6 +47,9 @@ def test_import_and_analyze_sample_video():
     assert "text_regions" in shot
     assert "typography_tracks" in shot
     assert "ae_recipe" in shot
+    plan = shot['ae_recipe']['animation_plan']
+    assert plan['source_start'] == shot['time']['start']
+    assert plan['source_end'] == shot['time']['end']
 
     # 5. 导出 Markdown
     res = client.post("/api/v1/export/markdown")
@@ -59,6 +57,8 @@ def test_import_and_analyze_sample_video():
     export = res.json()
     assert Path(export["path"]).exists()
     assert "Typography" in export["markdown"] or "文字" in export["markdown"]
+    assert '关键帧时间' in export['markdown']
+    assert '试作' in export['markdown']
 
     # 6. 导出 JSON
     res = client.post("/api/v1/export/json")
@@ -66,3 +66,4 @@ def test_import_and_analyze_sample_video():
     export = res.json()
     assert Path(export["path"]).exists()
     assert "typography_tracks" in export["data"]["shots"][0]
+    assert export['data']['shots'][0]['ae_recipe']['animation_plan'] == plan

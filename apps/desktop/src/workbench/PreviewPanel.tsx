@@ -2,7 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { api } from '../services/api';
 export interface SeekRequest{time:number;sequence:number}
 export interface PlayRange{start:number;end:number;sequence:number}
-export interface PreviewHandle{captureTime:()=>Promise<number>}
+export type CaptureTime = number | {presentedTime:number};
+export interface PreviewHandle{captureTime:()=>Promise<CaptureTime>}
 export const PreviewPanel=forwardRef<PreviewHandle,{source:string;seekRequest:SeekRequest;onTimeChange:(time:number)=>void;playRange?:PlayRange|null;onRangeExit?:()=>void}>(function PreviewPanel({source,seekRequest,onTimeChange,playRange,onRangeExit},ref){
  const player=useRef<HTMLVideoElement>(null),presented=useRef<number|null>(null);const [error,setError]=useState('');
  const range=useRef(playRange),internalSeek=useRef<number|null>(null),exitCallback=useRef(onRangeExit);exitCallback.current=onRangeExit;
@@ -13,7 +14,7 @@ export const PreviewPanel=forwardRef<PreviewHandle,{source:string;seekRequest:Se
  useImperativeHandle(ref,()=>({captureTime:async()=>{
   const video=player.current;if(!video)return 0;video.pause();
   if(video.seeking)await new Promise<void>(resolve=>video.addEventListener('seeked',()=>resolve(),{once:true}));
-  return presented.current??video.currentTime;
+  return presented.current===null?video.currentTime:{presentedTime:presented.current};
  }}),[]);
  useEffect(()=>{setError('');presented.current=null},[source]);
  useEffect(()=>{const video=player.current;if(video&&video.readyState>=1){exitRange();video.pause();seekTo(video,seekRequest.time);timeCallback.current(seekRequest.time)}},[seekRequest.sequence,seekRequest.time,source]);
@@ -37,5 +38,5 @@ export const PreviewPanel=forwardRef<PreviewHandle,{source:string;seekRequest:Se
   onSeeked={()=>{internalSeek.current=null}}
   onPlay={e=>{if(range.current&&e.currentTarget.currentTime>=range.current.end)exitRange()}}
   onTimeUpdate={e=>update(e.currentTarget,e.currentTarget.currentTime)}
-  onError={()=>setError('源视频无法播放，请检查文件位置或编码。分析结果仍可查看。')}/>:<div className="workbench-empty"><strong>参考视频预览</strong><p>导入一段参考视频，开始分析镜头、运动与节奏</p></div>}{error&&<p role="alert">{error}</p>}</div>;
+  onError={()=>setError('源视频无法播放。请检查文件是否已移动、被替换，或编码是否受支持。可在项目页重新关联原视频。')}/>:<div className="workbench-empty"><strong>参考视频预览</strong><p>导入一段参考视频，开始分析镜头、运动与节奏</p></div>}{error&&<p role="alert">{error}</p>}</div>;
 });

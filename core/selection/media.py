@@ -7,22 +7,28 @@ import numpy as np
 
 from schemas import TimeRange
 from schemas.audio import AudioAnalysis, AudioPoint
+from selection.blend import BlendSamples
 from selection.frames import iter_range_frames
 from selection.models import ResolvedFrame
+from video.scene_features import SceneBoundaryDetector
 from video.timing import video_origin
 
 
-def detect_range_scenes(path: Path, start: float, end: float) -> list[TimeRange]:
-    cuts, previous = [start], None
+def detect_range_scenes(path: Path, start: float, end: float,
+                        blend: BlendSamples | None = None, *, review_boundary: bool = False) -> list[TimeRange]:
+    cuts, found = [start], False
+    detector = SceneBoundaryDetector()
     for frame in iter_range_frames(path, start, end):
-        h, w = frame.image.shape[:2]
-        signature = frame.image[::max(1, h // 16), ::max(1, w // 16)].reshape(-1, 3).mean(axis=0)
-        if previous is not None and np.linalg.norm(signature - previous) > 25:
-            if frame.identity.actual_time > cuts[-1] + 1e-9:
-                cuts.append(frame.identity.actual_time)
-        previous = signature
-    if previous is None:
+        found = True
+        cuts.extend(detector.push(frame.identity.actual_time, frame.image))
+        if blend is not None and (len(cuts) == 1 or (review_boundary and len(cuts) == 2)):
+            if frame.supports_sdr_blend:
+                blend.add(frame.identity.actual_time, frame.image)
+            else:
+                blend.skip_message = '素材含超出当前 SDR 测量范围的色彩标记。请使用经过确认的 SDR 转换副本测量叠化。'
+    if not found:
         raise ValueError('选区中没有可解码帧')
+    cuts.extend(detector.finish())
     cuts.append(end)
     return [TimeRange(start=a, end=b, duration=b - a) for a, b in zip(cuts, cuts[1:])]
 

@@ -31,7 +31,7 @@ export function SelectionRecords({items,total,selected,onSelect,onMore,error}:{i
  return <section className="selection-records" aria-label="局部分析记录"><h3>局部记录 <small>{total}</small></h3>{error&&<p role="alert">{error}</p>}
   {!items.length&&<p className="muted">单帧和片段结果将保存在这里</p>}
   {items.map(r=><button key={r.id} className={`selection-record ${selected===r.id?'active':''}`} onClick={()=>onSelect(r.id)}>
-   <span>{r.kind==='frame'?'单帧':'片段'} · {recordStatus[r.status]}</span>
+   <span>{r.request.kind==='frame'?'单帧':r.request.measurement?'叠化':'片段'} · {recordStatus[r.status]}</span>
    <small>{r.request.kind==='frame'?`${r.request.frame.actual_time.toFixed(3)} 秒`:`${r.request.start.toFixed(3)} — ${r.request.end.toFixed(3)} 秒`}</small>
    {activeRecord(r)&&<small>{r.progress.message||'准备中'} {r.progress.total?`${r.progress.completed??0}/${r.progress.total}`:''}</small>}
    <small>{new Date(r.created_at).toLocaleString('zh-CN')}</small>

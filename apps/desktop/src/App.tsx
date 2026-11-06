@@ -1,3 +1,4 @@
+import { findTypographyRecipe } from './components/typographyRecipe';
 import { AnalysisFields } from './i18n/AnalysisFields';
 import { initializeRuntime,pollBackend,type BackendStatus } from './services/runtime';
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
@@ -16,10 +17,14 @@ import {
 } from "./services/api";
 import { LibraryView } from "./components/LibraryView";
 import { CutRhythmView } from "./components/RhythmPanel";
+import { MotionTrajectoryView } from './components/MotionTrajectoryView';
+import { globalTotalsUnavailable } from './i18n/labels';
+import { MotionMeasurementSummary } from './components/MotionMeasurementSummary';
+import { AnimationPlanView } from './components/AnimationPlanView';
 import "./App.css";
 import { Workbench } from './workbench/Workbench';
 import { MraMark, Icon } from './design/icons';
-import { labelValue, displayRecipeText } from './i18n/labels';
+import { labelValue, displayRecipeText, formatRecipeNumber, formatRecipeRange, formatSamplingRate } from './i18n/labels';
 import { ProjectsPage } from './management/ProjectsPage';
 import { ModelsPage } from './management/ModelsPage';
 import { SettingsPage } from './management/SettingsPage';
@@ -105,9 +110,7 @@ function TypographyRecipeView({
   shot: Shot;
 }) {
   const analysis = recipe.typography_analysis;
-  const aeRecipe = shot.ae_recipe?.typography?.find(
-    (t) => t.text === recipe.canonical_text
-  );
+  const aeRecipe = findTypographyRecipe(shot.ae_recipe?.typography ?? [], recipe);
 
   return (
     <div className="typography-recipe">
@@ -280,10 +283,12 @@ function App() {
   const [audio, setAudio] = useState<AudioAnalysis>();
   const [rhythmSummary, setRhythmSummary] = useState<RhythmSummary>();
   const [videoSource, setVideoSource] = useState("");
+  const [videoPath, setVideoPath] = useState("");
   const [status, setStatus] = useState<AnalysisStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const [progress, setProgress] = useState<AnalysisProgress | null>(null);
-  const [shots, setShots] = useState<Shot[]>([]);
+  const [shotList, setShotList] = useState<Awaited<ReturnType<typeof api.listShots>> | null>(null);
+  const shots = shotList?.video_source_id === videoSource ? shotList.shots : [];
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [projectId,setProjectId]=useState<number|null>(null);
@@ -312,7 +317,8 @@ function App() {
       setVideo(data.video);
       setAudio(data.audio);
       setRhythmSummary(data.rhythm_summary);
-      setVideoSource(data.video_path || "");
+      setVideoSource(data.video_source_id);
+      setVideoPath(data.video_path || "");
       setProjectId(data.library_project_id??null);
       setProgress(data.progress);
       setLibraryWarning(data.library_warning || "");
@@ -332,7 +338,7 @@ function App() {
       try{
         const session=await api.getSession();if(cancelled)return;
         if(session.project_id)await api.loadLibraryProject(session.project_id);
-        const data=await api.listShots();if(cancelled)return;setShots(data.shots);
+        const data=await api.listShots();if(cancelled)return;setShotList(data);
         const selected=data.shots.find(shot=>session.shot_library_id!=null?shot.library_id===session.shot_library_id:shot.shot_id===session.shot_id)??data.shots[0];
         setSelectedShotId(selected?shotKey(selected):null);
       }catch(err){if(!cancelled)setError(`上次项目未恢复：${String(err)}`)}
@@ -354,8 +360,8 @@ function App() {
       if (data.status === "ok") {
         setVideo(data.video as VideoInfo);
         setProjectId(null);
-        setAudio(undefined); setRhythmSummary(undefined); setVideoSource(selected);
-        setShots([]);
+        setAudio(undefined); setRhythmSummary(undefined); setVideoSource(data.video_source_id); setVideoPath(selected);
+        setShotList(null);
         setSelectedShotId(null);
         setStatus("imported");
         setView("analysis");
@@ -380,7 +386,7 @@ function App() {
         const shotsResponse = await api.listShots();
         const shotsData = shotsResponse.shots;
 
-        setShots(shotsData);
+        setShotList(shotsResponse);
         setStatus("done");
 
         if (shotsData.length > 0) {
@@ -424,7 +430,7 @@ function App() {
     try {
       await api.analyzeAudio(true);
       const data = await api.listShots();
-      setShots(data.shots);
+      setShotList(data);
       await refreshStatus();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -444,7 +450,7 @@ function App() {
   async function refreshShots() {
     try {
       const shotsResponse = await api.listShots();
-      setShots(shotsResponse.shots);
+      setShotList(shotsResponse);
       if (shotsResponse.shots.length > 0) setSelectedShotId(shotKey(shotsResponse.shots[0]));
       await refreshStatus();
       setView("analysis");
@@ -525,19 +531,20 @@ function App() {
       )}
 
       <section className="status-bar">{STATUS_LABELS[status] || status}{statusMessage && ` · ${statusMessage}`}</section>
-      <Workbench key={videoSource} video={video} source={videoSource} shots={shots} selected={selectedShot} audio={audio} summary={rhythmSummary} busy={busy} selections={selections} ensureProject={ensureSelectionProject} onSelectionSubmit={submitSelection}
+      <Workbench key={JSON.stringify([videoSource, videoPath])} video={video} source={videoSource} shots={shots} selected={selectedShot} audio={audio} summary={rhythmSummary} busy={busy} selections={selections} ensureProject={ensureSelectionProject} onSelectionSubmit={submitSelection}
         onSelect={shot=>setSelectedShotId(shotKey(shot))} onAnalyze={analyzeAudio}
-        detail={selectedShot?<ShotDetail shot={selectedShot}/>:<p className="muted">选择镜头查看画面、运动、文字和制作建议</p>}/>
+        detail={seek=>selectedShot?<ShotDetail shot={selectedShot} onSeekSource={videoSource ? seek : undefined}/>:<p className="muted">选择镜头查看画面、运动、文字和制作建议</p>}/>
       </>}
     </main>
   );
 }
 
-function ShotDetail({ shot }: { shot: Shot }) {
+function ShotDetail({ shot, onSeekSource }: { shot: Shot; onSeekSource?: (time: number) => void }) {
   const [overlay,setOverlay]=useState(false);
   const skipped=(shot.provider_versions?.vision as {provider?:string}|undefined)?.provider==='disabled';
   const motion = shot.motion || {};
   const measured = shot.measured_motion || {};
+  const samplingRate = formatSamplingRate(measured.sampling_target_fps);
   const summary = shot.motion_summary || {};
   const observations = shot.observations || {};
   const typography = shot.typography || {};
@@ -598,40 +605,18 @@ function ShotDetail({ shot }: { shot: Shot }) {
 
       <section className="detail-section">
         <h3>运动测量</h3>
-        {measured.status === "ok" ? (
-          <>
-            <p>
-              整体缩放: {(measured.scale_change_percent ?? 0) > 0 ? "+" : ""}
-              {(measured.scale_change_percent ?? 0).toFixed(1)}%
-            </p>
-            <p>
-              水平位移: {(measured.translation_x_ratio ?? 0) > 0 ? "+" : ""}
-              {((measured.translation_x_ratio ?? 0) * 100).toFixed(2)}%
-              {" "}({measured.translation_x_px?.toFixed(1) ?? 0}px)
-            </p>
-            <p>
-              垂直位移: {(measured.translation_y_ratio ?? 0) > 0 ? "+" : ""}
-              {((measured.translation_y_ratio ?? 0) * 100).toFixed(2)}%
-              {" "}({measured.translation_y_px?.toFixed(1) ?? 0}px)
-            </p>
-            <p>旋转: {(measured.rotation_deg ?? 0).toFixed(2)}°</p>
-            <p>运动强度: {labelValue('strength',measured.motion_strength)}</p>
-            <p>稳定度: {((measured.stability ?? 0) * 100).toFixed(0)}%</p>
-            {typeof measured.shake_score === "number" && measured.shake_score > 0.1 && (
-              <p>抖动强度: {(measured.shake_score * 100).toFixed(0)}%</p>
-            )}
-            <p>置信度: {((measured.confidence ?? 0) * 100).toFixed(0)}%</p>
-            <p className="meta">
-              基于 {measured.valid_pair_count ?? 0}/{measured.total_pair_count ?? 0} 有效帧对
-              {" "}(CV: {measured.cv_analysis_ms ?? 0}ms)
-            </p>
-          </>
+        {samplingRate && <p className="meta">目标采样率 {samplingRate}</p>}
+        <MotionTrajectoryView measured={measured} shotStart={shot.time.start} shotEnd={shot.time.end}/>
+        {measured.status === "ok" && !globalTotalsUnavailable(measured) ? (
+          <MotionMeasurementSummary measured={measured}/>
         ) : (
           <>
-            <p>状态: {labelValue("value", measured.status)}</p>
+            <p>状态: {measured.status === 'ok' ? '整镜头测量不可用' : labelValue("value", measured.status)}</p>
             {measured.message && <p>{measured.message}</p>}
+            {!!measured.mixed_support_pair_count && <p className="meta">多组运动不一致的帧对：{measured.mixed_support_pair_count} / {measured.total_pair_count}</p>}
+            {!!measured.spatially_limited_pair_count && <p className="meta">仅局部支持的帧对：{measured.spatially_limited_pair_count} / {measured.total_pair_count}</p>}
             <p className="meta">
-              {skipped?'此镜头特征点不足，基础分析无法估计其运动':'此镜头无法提供可靠测量，AI运动解读可作为参考'}
+              {measured.status === 'incomplete_tracking' ? '存在跟踪缺口，请查看分段轨迹；不将各段拼成完整累计运动。' : skipped?'请对照原片核对运动方向':'此镜头无法提供可靠测量，AI运动解读可作为参考'}
             </p>
           </>
         )}
@@ -734,9 +719,9 @@ function ShotDetail({ shot }: { shot: Shot }) {
             </ul>
           </>
         )}
-        {recipe.camera && recipe.camera.type !== "static" && (
+        {recipe.camera?.type && !["static", "unknown"].includes(recipe.camera.type) && (
           <p>
-            相机运动: {labelValue("value", recipe.camera.type)}
+            AI 运动判断: {labelValue("value", recipe.camera.type)}
             {typeof recipe.camera.strength === "number" && `（强度 ${recipe.camera.strength.toFixed(2)}）`}
             {typeof recipe.camera.confidence === "number" && `（置信度 ${recipe.camera.confidence.toFixed(2)}）`}
           </p>
@@ -745,15 +730,19 @@ function ShotDetail({ shot }: { shot: Shot }) {
           <>
             <h4>变换参考</h4>
             <ul>
-              {Object.entries(recipe.transform).map(([key, value]) => (
+              {Object.entries(recipe.transform).filter(([,value]) => value !== null && typeof value === 'object').map(([key, value]) => (
                 <li key={key}>
-                  {labelValue("value", key)}: {"from" in (value as Record<string, unknown>) && `从 ${(value as Record<string, unknown>).from} `}
-                  {"to" in (value as Record<string, unknown>) && `到 ${(value as Record<string, unknown>).to}`}
+                  {labelValue("value", key)}: {"from" in (value as Record<string, unknown>) && `从 ${formatRecipeNumber((value as Record<string, unknown>).from)} `}
+                  {"to" in (value as Record<string, unknown>) && `到 ${formatRecipeNumber((value as Record<string, unknown>).to)}`}
+                  {Boolean((value as Record<string, unknown>).unit) && ` ${(value as Record<string, unknown>).unit}`}
+                  {formatRecipeRange(value) && ` · 范围 ${formatRecipeRange(value)}`}
+                  {Boolean((value as Record<string, unknown>).basis) && `（${(value as Record<string, unknown>).basis}）`}
                 </li>
               ))}
             </ul>
           </>
         )}
+        <AnimationPlanView key={shotKey(shot)} plan={recipe.animation_plan} geometry={shot.measured_motion} onSeekSource={onSeekSource} onExportAe={padded => shot.library_id == null ? api.exportShotAe(shot.shot_id, padded) : api.exportLibraryAe(shot.library_id, padded)}/>
         {recipe.measured_motion && recipe.measured_motion.notes && recipe.measured_motion.notes.length > 0 && (
           <>
             <h4>测量备注</h4>

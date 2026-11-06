@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app import api
+from db.library import SourceIdentityMismatch
 from projects.service import ContentMismatch, ProjectService
 from projects.session import SessionState, read_session, write_session
 
@@ -56,6 +57,8 @@ def save():
         write_session(SessionState(project_id=pid))
         api._persist_project_state()
         return {"project_id": pid}
+    except SourceIdentityMismatch as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

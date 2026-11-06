@@ -94,7 +94,7 @@ def test_missing_model_config_is_actionable_before_construction(tmp_path, monkey
     assert not calls
 
 
-def test_replacing_weights_in_same_directory_changes_cache_identity(tmp_path, monkeypatch):
+def test_replacing_weights_in_same_directory_changes_cache_identity(tmp_path, monkeypatch, paddle_metadata):
     monkeypatch.setitem(
         sys.modules, "paddleocr", SimpleNamespace(__version__="3.7.0", PaddleOCR=lambda **kw: None)
     )

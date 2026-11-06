@@ -7,27 +7,34 @@ from threading import Lock, RLock
 from typing import Literal
 from uuid import uuid4
 
+import av
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel
 
 from app.config import get_config
+from app.playback_response import PlaybackResponse
 from app.progress import AnalysisProgressTracker
 from app.runtime_paths import get_runtime_paths
 from audio.analyzer import analyze_audio
 from audio.cache import AudioCache
 from audio.rhythm import VIDEO_CLOCK_VERSION, apply_rhythm
 from cv import MotionCache, analyze_shot_motion, fuse_motion
+from cv.cache import CV_ALGORITHM_VERSION
 from db import ReferenceLibrary
+from db.library import SourceIdentityMismatch
 from db.models import FilterSet
 from db.paths import resolve_path, video_hash
-from ocr import OCRCache, ShotOCRAnalyzer, create_ocr_provider
+from ocr import ShotOCRAnalyzer, create_ocr_provider
+from ocr.pending_cache import PendingOCRCache
 from ocr.semantic import TypographyCache, TypographySemanticAnalyzer
-from recipe.ae_recipe import generate_ae_recipe
+from recipe.ae_recipe import generate_ae_recipe, has_global_totals, shot_for_display
+from recipe.ae_script import export_ae_script
 from recipe.difficulty import estimate_difficulty
+from recipe.keyframes import RECIPE_VERSION
+from recipe.report import animation_plan_markdown
 from schemas import (
-    AnalysisProgress,
     FilterRequest,
     LibraryProjectSummary,
     LibrarySearchResponse,
@@ -40,11 +47,13 @@ from schemas import (
     TimeRange,
     VideoInfo,
 )
-from schemas.audio import AudioAnalysis, RhythmSummary
+from schemas.audio import AudioAnalysis
+from selection.static import STATIC_PROMPT_VERSION, StaticVisionAnalysis, static_recipe
 from video.frame_sampler import create_contact_sheet, sample_frames
 from video.metadata import read_video_metadata
-from video.playback import playback_source
+from video.playback import PlaybackSourceChanged, open_playback
 from video.scene_detect import detect_scenes
+from video.scene_features import SCENE_DETECT_VERSION
 from vision.analyzer import ShotAnalyzer, update_shot_with_analysis
 from vision.cache import VisionCache
 from vision.factory import create_vision_provider
@@ -96,9 +105,10 @@ def reset_library() -> None:
 OUTPUT_DIR = get_runtime_paths().projects
 
 
-def _ensure_project_dirs(project_name: str) -> Path:
-    project_dir = (resolve_path(_project_state.assets_dir)
-                   if _project_state.project_name == project_name and _project_state.assets_dir
+def _ensure_project_dirs(project_name: str, *, project: Project | None = None) -> Path:
+    project = project if project is not None else _project_state
+    project_dir = (resolve_path(project.assets_dir)
+                   if project.project_name == project_name and project.assets_dir
                    else OUTPUT_DIR / project_name)
     (project_dir / "shots").mkdir(parents=True, exist_ok=True)
     (project_dir / "analysis").mkdir(parents=True, exist_ok=True)
@@ -113,30 +123,41 @@ class VideoImportRequest(BaseModel):
 @router.post("/video/import")
 @_exclusive_project_operation
 def import_video(req: VideoImportRequest):
-    video_path = Path(req.path)
-    if not video_path.exists():
-        _project_state.analysis_status = "error"
-        _project_state.analysis_message = f"视频文件不存在: {video_path}"
-        raise HTTPException(status_code=404, detail=_project_state.analysis_message)
+    global _project_state
 
-    metadata = read_video_metadata(video_path)
-    _project_state.video = VideoInfo(**metadata)
-    _project_state.video_path = str(video_path.resolve())
-    _project_state.project_name = f"{video_path.stem}_{video_hash(video_path)[:8]}"
-    _project_state.assets_dir = str((OUTPUT_DIR / _project_state.project_name).resolve())
-    _project_state.library_warning = ""
-    _project_state.library_project_id = None
-    _project_state.display_name = ''
-    _project_state.shots = []
-    _project_state.audio = AudioAnalysis()
-    _project_state.rhythm_summary = RhythmSummary()
-    _project_state.analysis_status = "imported"
-    _project_state.analysis_message = ""
-    _project_state.progress = AnalysisProgress()
+    video_path = Path(req.path)
+    try:
+        if not video_path.exists():
+            raise FileNotFoundError(f"视频文件不存在: {video_path}")
+        if not video_path.is_file():
+            raise ValueError("请选择视频文件，不能导入文件夹")
+        digest = video_hash(video_path)
+        video = VideoInfo(**read_video_metadata(video_path))
+        if video_hash(video_path) != digest:
+            raise HTTPException(409, '导入期间视频内容改变，原项目保持不变，请重新导入')
+        project_name = f"{video_path.stem}_{digest[:8]}"
+        project = Project(
+            video=video,
+            video_path=str(video_path.resolve()),
+            source_hash=digest,
+            project_name=project_name,
+            assets_dir=str((OUTPUT_DIR / project_name).resolve()),
+            analysis_status="imported",
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"视频文件不存在或已被移除: {video_path}") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=f"无法读取视频，请检查文件权限: {video_path}") from exc
+    except (OSError, ValueError, av.FFmpegError) as exc:
+        raise HTTPException(status_code=400, detail=f"无法导入视频，请检查文件是否完整且包含视频画面: {exc}") from exc
+
+    # Publish only a complete candidate; polling and failed imports keep the old project intact.
+    _project_state = project
 
     return {
         "status": "ok",
         "video": _project_state.video.model_dump(),
+        "video_source_id": _video_source_id(project),
     }
 
 
@@ -151,7 +172,7 @@ def _persist_project_state() -> Path:
     return output_path
 
 
-def _persist_to_library() -> bool:
+def _persist_to_library(*, raise_identity_conflict: bool = False) -> bool:
     """将当前项目状态和 Shots 持久化到 SQLite Reference Library。"""
     try:
         lib = _get_library()
@@ -161,12 +182,15 @@ def _persist_to_library() -> bool:
         write_session(SessionState(project_id=_project_state.library_project_id))
         return True
     except Exception as exc:
+        if raise_identity_conflict and isinstance(exc, SourceIdentityMismatch):
+            raise HTTPException(409, str(exc)) from exc
         logging.getLogger(__name__).warning("保存到 Reference Library 失败: %s", exc)
         _project_state.library_warning = f"Reference Library 保存失败，可重试: {exc}"
         return False
 
 
-def _analyze_project_audio(video_path: Path, force: bool = False) -> AudioAnalysis:
+def _analyze_project_audio(video_path: Path, force: bool = False, *, project: Project | None = None) -> AudioAnalysis:
+    project = project if project is not None else _project_state
     config = get_config()
     try:
         result = analyze_audio(video_path, sample_rate=config.audio_sample_rate,
@@ -174,9 +198,9 @@ def _analyze_project_audio(video_path: Path, force: bool = False) -> AudioAnalys
                                cache=AudioCache(config.audio_cache_dir), force=force)
     except Exception as exc:
         result = AudioAnalysis(status='error', message=f'音频分析失败: {exc}')
-    _project_state.audio = result
-    _project_state.rhythm_summary = apply_rhythm(_project_state.shots, result, config.beat_sync_tolerance_ms)
-    for shot in _project_state.shots:
+    project.audio = result
+    project.rhythm_summary = apply_rhythm(project.shots, result, config.beat_sync_tolerance_ms)
+    for shot in project.shots:
         shot.provider_versions['audio'] = {'method': result.method, 'librosa': result.library_version}
     return result
 
@@ -189,7 +213,17 @@ class AudioAnalyzeRequest(BaseModel):
 @_exclusive_project_operation
 def analyze_project_audio(req: AudioAnalyzeRequest | None = None):
     """Retry only audio, reusing the current cuts and preserving all other analyses."""
-    result = _analyze_project_audio(_resolve_video_path(), force=bool(req and req.force))
+    global _project_state
+    source = _resolve_video_path()
+    digest = video_hash(source)
+    if _project_state.source_hash and digest != _project_state.source_hash:
+        raise HTTPException(409, '源视频内容已改变，不能将新音频与旧镜头匹配，请重新导入')
+    candidate = _project_state.model_copy(deep=True)
+    result = _analyze_project_audio(source, force=bool(req and req.force), project=candidate)
+    if video_hash(source) != digest:
+        raise HTTPException(409, '音频分析期间源视频内容改变，保留原分析结果，请重新导入')
+    candidate.source_hash = digest
+    _project_state = candidate
     for shot in _project_state.shots:
         if shot.ae_recipe:
             shot.ae_recipe['timing'] = {**shot.rhythm.model_dump(), 'notes': 'Measured cut alignment against estimated beats; not a claim about author intent.'}
@@ -217,6 +251,7 @@ class AnalyzeRequest(BaseModel):
 @router.post("/video/analyze")
 @_exclusive_project_operation
 def analyze_video(req: AnalyzeRequest | None = None):
+    global _project_state
     tracker = AnalysisProgressTracker(_project_state)
 
     if _project_state.video is None or _project_state.video_path is None:
@@ -224,8 +259,12 @@ def analyze_video(req: AnalyzeRequest | None = None):
         raise HTTPException(status_code=400, detail=_project_state.analysis_message)
 
     tracker.start_analysis()
+    # Polling sees live progress on the old, verified result. New evidence remains
+    # private until its source identity has been checked again after analysis.
+    candidate = _project_state.model_copy(deep=True)
 
     has_warnings = False
+    ocr_cache = None
 
     try:
         config = get_config()
@@ -236,19 +275,26 @@ def analyze_video(req: AnalyzeRequest | None = None):
             if not validation.available:
                 raise HTTPException(409,'；'.join(validation.errors))
         video_path = _resolve_video_path()
-        if _project_state.library_project_id:
-            known=_get_library().get_project(_project_state.library_project_id)
-            if known.video_hash and not known.video_hash.startswith('legacy:') and video_hash(video_path)!=known.video_hash:
+        source_hash = video_hash(video_path)
+        if candidate.source_hash and source_hash != candidate.source_hash:
+            raise HTTPException(409, '源视频内容已改变，请重新导入为新项目')
+        if candidate.library_project_id:
+            known=_get_library().get_project(candidate.library_project_id)
+            if known.video_hash and not known.video_hash.startswith('legacy:') and source_hash != known.video_hash:
                 raise HTTPException(409,'源视频内容已改变，请重新导入为新项目')
+        # An archived import may have stored coded dimensions before display
+        # orientation support. Refresh the private candidate after source verification.
+        if candidate.library_project_id:
+            candidate.video = VideoInfo(**read_video_metadata(video_path))
         if not basic and config.vision_provider != 'mock':
             from models.ollama import OllamaInspector
             models=OllamaInspector(config.qwen_api_base).inspect()
             if not any(m['id']==config.qwen_model_id and m['vision'] for m in models['models']):
                 raise HTTPException(409,'视觉模型未就绪，请在模型页配置，或选择基础分析')
         # Each run owns its assets; archived ranges/versions must keep their frames.
-        _project_state.assets_dir = str((OUTPUT_DIR / _project_state.project_name /
+        candidate.assets_dir = str((OUTPUT_DIR / candidate.project_name /
                                          'runs' / uuid4().hex).resolve())
-        project_dir = _ensure_project_dirs(_project_state.project_name)
+        project_dir = _ensure_project_dirs(candidate.project_name, project=candidate)
 
         # 1. 分镜
         tracker.start_stage("scene_detect", "正在检测镜头切换")
@@ -258,6 +304,7 @@ def analyze_video(req: AnalyzeRequest | None = None):
         # 2. 代表帧提取与 Contact Sheet
         tracker.start_stage("extract_frames", "正在提取代表帧")
         shots = []
+        static_analyses = {}
 
         for meta in shots_meta:
             shot_id = meta["shot_id"]
@@ -284,18 +331,25 @@ def analyze_video(req: AnalyzeRequest | None = None):
                 shot_id=shot_id,
                 time=TimeRange(**meta),
                 frames=frame_files,
-                pipeline_version='mra-pipeline-v2-video-clock',
-                provider_versions={'video_clock': {'version': VIDEO_CLOCK_VERSION}},
+                frame_timestamps=[frame['timestamp'] for frame in sampled],
+                pipeline_version='mra-pipeline-v6-spatial-evidence',
+                provider_versions={'video_clock': {'version': VIDEO_CLOCK_VERSION},
+                                   'representative_frames': {'strategy': 'nearest-actual-pts-half-open-unique-v1',
+                                                             'requested_count': frame_count},
+                                   'scene_detection': {'version': SCENE_DETECT_VERSION},
+                                   'cv': {'version': CV_ALGORITHM_VERSION, 'target_fps': config.cv_target_fps,
+                                          'max_long_edge': config.cv_max_long_edge},
+                                   'recipe': {'version': RECIPE_VERSION}},
             )
             shots.append(shot)
 
-        _project_state.shots = shots
+        candidate.shots = shots
         tracker.complete_stage("extract_frames")
 
-        total_shots = len(_project_state.shots)
+        total_shots = len(candidate.shots)
 
         tracker.start_stage('audio_analysis', '正在检测音频节拍与瞬态')
-        audio_result = _analyze_project_audio(video_path)
+        audio_result = _analyze_project_audio(video_path, project=candidate)
         has_warnings = audio_result.status == 'error'
         tracker.complete_optional_stage('audio_analysis', audio_result.status, audio_result.message)
 
@@ -314,16 +368,29 @@ def analyze_video(req: AnalyzeRequest | None = None):
                 max_retries=config.vision_max_retries,
             )
 
-            for idx, shot in enumerate(_project_state.shots, start=1):
+            for idx, shot in enumerate(candidate.shots, start=1):
                 try:
-                    analysis = analyzer.analyze(
-                        shot,
-                        project_dir,
-                        video_filename=_project_state.video.filename,
-                    )
+                    if len(shot.frames) == 1:
+                        shot.provider_versions['vision'] = {**model_info, 'analysis_mode': 'static_frame',
+                                                            'prompt_version': STATIC_PROMPT_VERSION}
+                        analysis = provider.analyze_static_frame(project_dir / 'shots' / shot.shot_id / shot.frames[0],
+                            {'source_hash': source_hash, 'actual_time': shot.frame_timestamps[0],
+                             'time_origin': 'source_video_seconds', 'shot_id': shot.shot_id})
+                        analysis = StaticVisionAnalysis.model_validate(analysis)
+                    else:
+                        analysis = analyzer.analyze(
+                            shot, project_dir, video_filename=candidate.video.filename)
                     if analysis.analysis_error:
                         raise RuntimeError(analysis.analysis_error)
-                    update_shot_with_analysis(shot, analysis)
+                    if len(shot.frames) == 1:
+                        static_analyses[shot.shot_id] = analysis
+                        shot.observations = analysis.observations.model_dump()
+                        shot.typography = analysis.typography.model_dump()
+                        shot.visual_effects = [effect.model_dump() for effect in analysis.visual_effects]
+                        shot.ae_hypothesis = analysis.ae_hypothesis.model_dump()
+                        shot.motion = {}
+                    else:
+                        update_shot_with_analysis(shot, analysis)
                     tracker.shot_complete(
                         "vision_analysis",
                         idx,
@@ -339,13 +406,14 @@ def analyze_video(req: AnalyzeRequest | None = None):
 
         else:
             tracker.complete_optional_stage('vision_analysis','skipped','基础分析：省略视觉模型')
-            for shot in _project_state.shots:
+            for shot in candidate.shots:
                 shot.provider_versions['vision']=model_info
 
         # 4. CV 运动测量
         tracker.start_stage("cv_analysis", "正在测量全局运动")
         cv_cache = MotionCache(config.cv_cache_dir)
-        for idx, shot in enumerate(_project_state.shots, start=1):
+        pending_cv_cache = []
+        for idx, shot in enumerate(candidate.shots, start=1):
             try:
                 cached = cv_cache.get(
                     video_path,
@@ -353,6 +421,7 @@ def analyze_video(req: AnalyzeRequest | None = None):
                     shot.time.end,
                     config.cv_target_fps,
                     config.cv_max_long_edge,
+                    source_hash=source_hash,
                 )
                 if cached is not None:
                     shot.measured_motion = cached
@@ -361,20 +430,13 @@ def analyze_video(req: AnalyzeRequest | None = None):
                         video_path,
                         shot.time.start,
                         shot.time.end,
-                        original_width=_project_state.video.width,
-                        original_height=_project_state.video.height,
+                        original_width=candidate.video.width,
+                        original_height=candidate.video.height,
                         target_fps=config.cv_target_fps,
                         max_long_edge=config.cv_max_long_edge,
                     )
                     shot.measured_motion = measured
-                    cv_cache.set(
-                        video_path,
-                        shot.time.start,
-                        shot.time.end,
-                        measured,
-                        config.cv_target_fps,
-                        config.cv_max_long_edge,
-                    )
+                    pending_cv_cache.append((shot, measured))
 
                 shot.motion_summary = fuse_motion(shot.motion, shot.measured_motion)
                 tracker.shot_complete(
@@ -394,9 +456,10 @@ def analyze_video(req: AnalyzeRequest | None = None):
             # 5. OCR 分析
             tracker.start_stage("ocr_analysis", "正在识别文字")
             ocr_provider = create_ocr_provider(config)
-            for shot in _project_state.shots:
-                shot.provider_versions.update({"vision": model_info, "ocr": ocr_provider.get_model_info()})
-            ocr_cache = OCRCache(config.ocr_cache_dir)
+            for shot in candidate.shots:
+                shot.provider_versions.setdefault('vision', model_info)
+                shot.provider_versions['ocr'] = ocr_provider.get_model_info()
+            ocr_cache = PendingOCRCache(config.ocr_cache_dir, video_path, source_hash)
             ocr_analyzer = ShotOCRAnalyzer(
                 provider=ocr_provider,
                 cache=ocr_cache,
@@ -404,9 +467,10 @@ def analyze_video(req: AnalyzeRequest | None = None):
                 min_frames=config.ocr_min_frames,
                 max_frames=config.ocr_max_frames,
                 max_long_edge=config.ocr_max_long_edge,
+                strict_range=True,
             )
 
-            for idx, shot in enumerate(_project_state.shots, start=1):
+            for idx, shot in enumerate(candidate.shots, start=1):
                 try:
                     ocr_result = ocr_analyzer.analyze(
                         video_path,
@@ -416,7 +480,10 @@ def analyze_video(req: AnalyzeRequest | None = None):
                     if ocr_result.analysis_error:
                         raise RuntimeError(ocr_result.analysis_error)
                     shot.text_regions = ocr_result.text_regions
-                    shot.typography_tracks = ocr_result.typography_tracks
+                    shot.typography_tracks = ocr_result.typography_tracks if len(shot.frames) > 1 else []
+                    if len(shot.frames) == 1:
+                        shot.text_regions = [region for region in shot.text_regions
+                                             if abs(region.frame_timestamp - shot.frame_timestamps[0]) <= 1e-9]
                     tracker.shot_complete(
                         "ocr_analysis",
                         idx,
@@ -441,7 +508,7 @@ def analyze_video(req: AnalyzeRequest | None = None):
                 max_retries=config.vision_max_retries,
             )
 
-            for idx, shot in enumerate(_project_state.shots, start=1):
+            for idx, shot in enumerate(candidate.shots, start=1):
                 try:
                     if not shot.typography_tracks:
                         tracker.shot_complete(
@@ -483,15 +550,35 @@ def analyze_video(req: AnalyzeRequest | None = None):
         else:
             for stage in ['ocr_analysis','typography_analysis']:
                 tracker.complete_optional_stage(stage,'skipped','基础分析：省略文字模型')
-            for shot in _project_state.shots:
+            for shot in candidate.shots:
                 shot.provider_versions['ocr']={'provider':'disabled','reason':'basic'}
                 shot.provider_versions['typography']={'provider':'disabled','reason':'basic'}
 
         # 7. Recipe 生成
         tracker.start_stage("recipe_generation", "正在生成 AE Recipe")
-        for idx, shot in enumerate(_project_state.shots, start=1):
+        for idx, shot in enumerate(candidate.shots, start=1):
             try:
-                recipe = generate_ae_recipe(shot.model_dump())
+                if len(shot.frames) == 1:
+                    shot.motion = {}
+                    shot.typography_tracks = []
+                    recipe = static_recipe(static_analyses.get(shot.shot_id, StaticVisionAnalysis()), shot.text_regions)
+                    measured_recipe = generate_ae_recipe(shot.model_dump())
+                    measured_plan = measured_recipe['animation_plan']
+                    if measured_plan['evidence_source'] == 'measured' and measured_plan['curves']:
+                        recipe.update({key: measured_recipe[key] for key in (
+                            'version', 'transform', 'animation_plan', 'measured_motion')})
+                        recipe['camera'] = {'status': 'measured_only',
+                                            'reason': '单张代表帧只提供静态语义；整体运动仅来自独立连续 CV 测量'}
+                        recipe['animation'] = {'status': 'measured_only',
+                                               'reason': '仅提供连续 CV 曲线，不推断语义动画或转场'}
+                    else:
+                        recipe['measured_motion'] = measured_recipe['measured_motion']
+                        recipe['animation']['reason'] = '单张代表帧不支持时间推断，独立 CV 也未提供可靠连续运动曲线'
+                    if basic:
+                        recipe['basis'] = '基础分析已省略视觉和文字模型；静态内容未做 AI 推断，运动仅参考独立 CV 测量'
+                    recipe['notes'] = ['单张代表帧无法判断缓动、转场或文字进出动画；真实采样时间保留在 frame_timestamps。']
+                else:
+                    recipe = generate_ae_recipe(shot.model_dump())
                 recipe["difficulty"] = estimate_difficulty(recipe)
                 shot.ae_recipe = recipe
                 tracker.update_stage(
@@ -510,6 +597,24 @@ def analyze_video(req: AnalyzeRequest | None = None):
 
         # 6. 保存
         tracker.start_stage("saving", "正在保存分析结果")
+        if video_hash(video_path) != source_hash:
+            raise HTTPException(409, '分析期间源视频内容改变，结果和运动缓存未发布，请重新导入')
+        candidate.source_hash = source_hash
+        candidate.progress = _project_state.progress
+        _project_state = candidate
+        tracker.project = candidate
+        for shot, measured in pending_cv_cache:
+            try:
+                cv_cache.set(video_path, shot.time.start, shot.time.end, measured,
+                             config.cv_target_fps, config.cv_max_long_edge, source_hash=source_hash)
+            except OSError:
+                logging.getLogger(__name__).warning('CV 缓存写入失败，保留本次分析结果', exc_info=True)
+        if ocr_cache is not None:
+            try:
+                ocr_cache.publish()
+            except OSError:
+                logging.getLogger(__name__).warning('OCR 缓存写入失败，保留本次分析结果', exc_info=True)
+        _project_state.source_hash = source_hash
         _persist_project_state()
         _project_state.analysis_status = "completed_with_warnings" if has_warnings else "done"
         _project_state.analysis_message = '分析完成（部分步骤存在警告）' if has_warnings else '分析完成'
@@ -527,7 +632,7 @@ def analyze_video(req: AnalyzeRequest | None = None):
         }
 
     except HTTPException as exc:
-        tracker.set_error('preparing',str(exc.detail))
+        tracker.set_error(_project_state.progress.stage,str(exc.detail))
         raise
     except Exception as exc:
         tracker.set_error(_project_state.progress.stage, f"分析失败: {exc}")
@@ -562,43 +667,78 @@ def _resolve_video_path() -> Path:
     raise HTTPException(status_code=404, detail=f"找不到视频文件: {filename}")
 
 
+def _video_source_id(project: Project) -> str:
+    if not project.video_path:
+        return ""
+    return project.source_hash or project.video_path
+
+
 @router.get("/project/status")
 def project_status():
+    project = _project_state
     return {
-        "status": _project_state.analysis_status,
-        "project_name": _project_state.display_name or _project_state.project_name,
-        "message": _project_state.analysis_message,
-        "video": _project_state.video.model_dump() if _project_state.video else None,
-        "video_path": _project_state.video_path,
-        "shot_count": len(_project_state.shots),
-        "progress": _project_state.progress.model_dump_safe(),
-        "library_warning": _project_state.library_warning,
-        "library_project_id": _project_state.library_project_id,
-        "audio": _project_state.audio.model_dump(),
-        "rhythm_summary": _project_state.rhythm_summary.model_dump(),
+        "status": project.analysis_status,
+        "project_name": project.display_name or project.project_name,
+        "message": project.analysis_message,
+        "video": project.video.model_dump() if project.video else None,
+        "video_path": project.video_path,
+        "video_source_id": _video_source_id(project),
+        "shot_count": len(project.shots),
+        "progress": project.progress.model_dump_safe(),
+        "library_warning": project.library_warning,
+        "library_project_id": project.library_project_id,
+        "audio": project.audio.model_dump(),
+        "rhythm_summary": project.rhythm_summary.model_dump(),
     }
 
 
 @router.get('/video/source')
-def project_video_source():
-    """Serve the current source with FileResponse Range support for rhythm inspection."""
-    source = _resolve_video_path()
+def project_video_source(identity: str | None = None):
+    project = _project_state
+    if identity is not None and identity not in (_video_source_id(project), project.video_path):
+        raise HTTPException(409, '播放请求属于另一份素材，请重新打开镜头')
+    if not project.video_path and project.video is None:
+        raise HTTPException(400, '未导入视频')
+    return _verified_playback(resolve_path(project.video_path), project.source_hash)
+
+
+def _verified_playback(path: Path | None, expected_hash: str | None):
+    if path is None or not path.is_file():
+        raise HTTPException(404, '源视频缺失，请在项目页重新关联同一视频')
     try:
-        return FileResponse(playback_source(source, OUTPUT_DIR / 'playback_cache'), media_type='video/mp4')
+        digest = expected_hash if expected_hash and not expected_hash.startswith('legacy:') else None
+        playable, file, key = open_playback(path, OUTPUT_DIR / 'playback_cache', digest)
+        try:
+            return PlaybackResponse(playable, file, key)
+        except BaseException:
+            file.close()
+            raise
+    except PlaybackSourceChanged as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, '源视频缺失，请在项目页重新关联同一视频') from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f'无法准备视频播放副本: {exc}') from exc
 
 
+def _display_working_shot(shot: Shot, project: Project):
+    video = project.video
+    data = shot.model_dump()
+    return shot_for_display(data, video.width, video.height) if video else data
+
+
 @router.get("/shots")
 def list_shots():
-    return {"shots": [s.model_dump() for s in _project_state.shots]}
+    project = _project_state
+    return {"shots": [_display_working_shot(s, project) for s in project.shots], "video_source_id": _video_source_id(project)}
 
 
 @router.get("/shots/{shot_id}")
 def get_shot(shot_id: str, library_id: int | None = None):
-    for shot in _project_state.shots:
+    project = _project_state
+    for shot in project.shots:
         if shot.shot_id == shot_id and (library_id is None or shot.library_id == library_id):
-            return shot.model_dump()
+            return _display_working_shot(shot, project)
     raise HTTPException(status_code=404, detail="Shot not found")
 
 
@@ -643,6 +783,29 @@ def export_json():
     return {"path": str(output_path), "data": data}
 
 
+def _export_motion_script(shot: dict, width: int, height: int, fps: float, *, padded: bool = False):
+    path = OUTPUT_DIR / 'ae_exports' / f'motion_{uuid4().hex}.jsx'
+    try:
+        export_ae_script(shot, width=width, height=height, fps=fps, path=path, padded=padded)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(503, '无法写入 AE 试作脚本，请检查导出目录') from exc
+    return {'path': str(path.resolve()), 'message': '在 AE 中运行脚本会新建独立试作合成；请把 CONTENT 内容替换为静态素材。'}
+
+
+@router.post('/shots/{shot_id}/export/ae')
+@_exclusive_project_operation
+def export_working_motion_script(shot_id: str, padded: bool = False):
+    shot = next((s for s in _project_state.shots if s.shot_id == shot_id), None)
+    if shot is None:
+        raise HTTPException(404, '镜头不存在')
+    video = _project_state.video
+    if video is None:
+        raise HTTPException(409, '视频元数据缺失，请重新导入')
+    return _export_motion_script(shot.model_dump(), video.width, video.height, video.fps, padded=padded)
+
+
 @router.post("/export/markdown")
 def export_markdown():
     project_dir = _ensure_project_dirs(_project_state.project_name)
@@ -684,7 +847,9 @@ def export_markdown():
             lines.append(f'- 节奏说明: {timing.message}')
         lines.append(f"- 运动 (AI): {shot.motion.get('type', 'unknown')}")
         mm = shot.measured_motion
-        if mm.status == "ok":
+        if mm.sampling_target_fps is not None:
+            lines.append(f"- 运动测量目标采样率：{mm.sampling_target_fps:g} 帧/秒")
+        if has_global_totals(mm.status, mm.trajectory_status, mm.valid_pair_count):
             lines.append(
                 f"- 运动 (CV): scale={mm.scale_change_percent:+.2f}%, "
                 f"tx={mm.translation_x_ratio * 100:+.2f}%, "
@@ -693,7 +858,8 @@ def export_markdown():
                 f"strength={mm.motion_strength}, conf={mm.confidence}"
             )
         else:
-            lines.append(f"- 运动 (CV): {mm.status} - {mm.message}")
+            reason = mm.message or '没有足够的连续帧对可计算整镜头位移'
+            lines.append(f"- 整镜头运动测量不可用：{reason}（有效帧对 {mm.valid_pair_count}/{mm.total_pair_count}）")
         lines.append(f"- 主体: {shot.observations.get('subject_type', 'unknown')}")
         if shot.provider_versions.get('vision',{}).get('provider')=='disabled':
             lines.append('- 文字：基础分析未执行文字识别')
@@ -714,7 +880,7 @@ def export_markdown():
                 lines.append(f"  - AE 实现推测: {', '.join(track.ae_hypothesis) if track.ae_hypothesis else 'unknown'}")
                 lines.append("")
 
-        recipe = shot.ae_recipe
+        recipe = _display_working_shot(shot, _project_state)['ae_recipe']
         if recipe:
             lines.append("#### AE 制作建议")
             layers = recipe.get("layers", [])
@@ -722,11 +888,13 @@ def export_markdown():
                 roles = [layer.get("role", "") for layer in layers]
                 lines.append("- 分层建议: " + ", ".join(roles))
             camera = recipe.get("camera", {})
-            if camera.get("type") != "static":
+            if camera.get("type") not in (None, "unknown", "static"):
                 lines.append(f"- 相机运动: {camera.get('type')} (强度 {camera.get('strength')})")
             effects = recipe.get("effects", [])
             if effects:
                 lines.append("- 可能效果: " + ", ".join(effects))
+            plan = recipe.get('animation_plan', {})
+            lines.extend(animation_plan_markdown(plan))
             difficulty = recipe.get("difficulty", {})
             if difficulty:
                 lines.append(f"- 难度: {difficulty.get('ae', '未知')}")
@@ -814,6 +982,7 @@ def load_project_into_memory(project_id: int):
             project_name=project.name,
             display_name=project.display_name,
             video_path=project.video_path,
+            source_hash=project.video_hash if project.video_hash and not project.video_hash.startswith('legacy:') else '',
             assets_dir=str(resolve_path(project.assets_dir)) if project.assets_dir else None,
             analysis_status=project.analysis_status,
             analysis_message=project.analysis_message,
@@ -1017,7 +1186,7 @@ def search_library(body: FilterRequest):
 def save_to_library():
     if not _project_state.shots:
         raise HTTPException(status_code=400, detail="没有可保存的分析结果")
-    if not _persist_to_library():
+    if not _persist_to_library(raise_identity_conflict=True):
         raise HTTPException(status_code=503, detail=_project_state.library_warning)
     _persist_project_state()
     return {"status": "ok", "project_id": _project_state.library_project_id}
@@ -1036,7 +1205,9 @@ def _library_shot(db_id: int):
 def library_shot_detail(db_id: int):
     shot = _library_shot(db_id)
     project = _get_library().get_project(shot.project_id)
-    return {**asdict(shot), "source": asdict(project)}
+    timestamps = (shot.provider_versions.get('representative_frames') or {}).get('timestamps', [])
+    return {**shot_for_display(asdict(shot), project.video_width, project.video_height),
+            'frame_timestamps': timestamps, "source": asdict(project)}
 
 
 @router.get("/library/shots/{db_id}/thumbnail")
@@ -1055,28 +1226,31 @@ def library_thumbnail(db_id: int):
 def library_source(db_id: int):
     shot = _library_shot(db_id)
     project = _get_library().get_project(shot.project_id)
-    path = resolve_path(project.video_path)
-    if path is None or not path.is_file():
-        raise HTTPException(status_code=404, detail="源视频已移动或不存在")
-    try:
-        return FileResponse(playback_source(path, OUTPUT_DIR / 'playback_cache'), media_type='video/mp4')
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f'无法准备视频播放副本: {exc}') from exc
+    return _verified_playback(resolve_path(project.video_path), project.video_hash)
 
 
 @router.get("/library/shots/{db_id}/recipe")
 def library_recipe(db_id: int):
-    return _library_shot(db_id).ae_recipe
+    return library_shot_detail(db_id)['ae_recipe']
 
 
 @router.post("/library/shots/{db_id}/export/recipe")
 def export_library_recipe(db_id: int):
-    shot = _library_shot(db_id)
+    recipe = library_recipe(db_id)
     directory = OUTPUT_DIR / 'library_exports' / str(db_id)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f'shot_{db_id}_recipe.json'
-    path.write_text(json.dumps(shot.ae_recipe, ensure_ascii=False, indent=2), encoding='utf-8')
+    path.write_text(json.dumps(recipe, ensure_ascii=False, indent=2), encoding='utf-8')
     return {'path': str(path.resolve())}
+
+
+@router.post('/library/shots/{db_id}/export/ae')
+def export_library_motion_script(db_id: int, padded: bool = False):
+    shot = _library_shot(db_id)
+    project = _get_library().get_project(shot.project_id)
+    data = {**asdict(shot), 'time': {'start': shot.start_time, 'end': shot.end_time,
+                                    'duration': shot.duration}}
+    return _export_motion_script(data, project.video_width, project.video_height, project.video_fps, padded=padded)
 
 
 @router.put("/library/shots/{db_id}/tags")

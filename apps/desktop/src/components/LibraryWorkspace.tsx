@@ -4,10 +4,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type LibraryProject, type LibraryShot, type LibraryShotDetail, type Tag } from "../services/api";
 import "./LibraryView.css";
 import { CutRhythmView } from "./RhythmPanel";
+import { MotionTrajectoryView } from './MotionTrajectoryView';
+import { AnimationPlanView } from './AnimationPlanView';
 
 const PAGE_SIZE = 48;
 const message = (err: unknown) => err instanceof Error ? err.message : String(err);
 const optionalNumber = (value: string) => value === "" ? null : Number(value);
+type LibraryPlayback = { mode: "shot" | "source" | "frame"; time: number };
+
+function applyPlayback(player: HTMLVideoElement, request: LibraryPlayback) {
+  player.currentTime = request.time;
+  if (request.mode === "frame") player.pause();
+  else void player.play().catch(() => {});
+}
 
 export function LibraryView({ onLoadProject, busy = false, onLoadingChange }: {
   onLoadProject?: () => Promise<void> | void;
@@ -34,7 +43,7 @@ export function LibraryView({ onLoadProject, busy = false, onLoadingChange }: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [playMode, setPlayMode] = useState<"shot" | "source" | null>(null);
+  const [playback, setPlayback] = useState<LibraryPlayback | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const detailRequest = useRef(0);
   const tagMutation = useRef(false);
@@ -65,7 +74,7 @@ export function LibraryView({ onLoadProject, busy = false, onLoadingChange }: {
   }, [query, motion, source, selectedTags, hasText, minDuration, maxDuration, minConfidence, maxConfidence, offset, refresh]);
   async function inspect(id: number) {
     const request = ++detailRequest.current;
-    setPlayMode(null); setNotice(""); setDetail(null);
+    setPlayback(null); setNotice(""); setDetail(null);
     try { const data = await api.getLibraryShot(id); if (request === detailRequest.current) setDetail(data); }
     catch (err) { if (request === detailRequest.current) setError(message(err)); }
   }
@@ -121,9 +130,10 @@ export function LibraryView({ onLoadProject, busy = false, onLoadingChange }: {
       setNotice(`制作建议已导出: ${exported.path}`);
     } catch (err) { setError(message(err)); }
   }
-  function openVideo(mode: "shot" | "source") {
-    setPlayMode(mode);
-    if (video.current && detail) { video.current.currentTime = mode === "shot" ? detail.start_time : 0; void video.current.play().catch(() => {}); }
+  function openVideo(mode: LibraryPlayback["mode"], time = mode === "shot" ? detail?.start_time ?? 0 : 0) {
+    const request = { mode, time };
+    setPlayback(request);
+    if (video.current && video.current.readyState >= 1) applyPlayback(video.current, request);
   }
   return <section className="library-view">
     <h2>参考库</h2>
@@ -152,16 +162,19 @@ export function LibraryView({ onLoadProject, busy = false, onLoadingChange }: {
         {!detail ? <p className="empty">选择一个镜头 查看详情</p> : <>
           <h4>{detail.shot_id} · {detail.start_time.toFixed(3)}–{detail.end_time.toFixed(3)}s</h4><p>{detail.source.video_filename}</p>
           <div className="inspector-actions"><button onClick={() => openVideo("shot")}>播放镜头</button><button onClick={() => openVideo("source")}>打开源视频</button><button onClick={async () => { try { await navigator.clipboard.writeText(`${detail.source.video_filename} ${detail.start_time.toFixed(3)}s–${detail.end_time.toFixed(3)}s`); setNotice("时间码 已复制"); } catch (err) { setError(message(err)); } }}>复制时间码</button><button onClick={exportRecipe}>导出制作建议</button><button disabled={busy} onClick={() => loadProject(detail.project_id)}>载入分析工作区</button></div>
-          {playMode && <video key={detail.id} ref={video} controls autoPlay src={api.librarySourceUrl(detail.id)} onLoadedMetadata={e => { e.currentTarget.currentTime = playMode === "shot" ? detail.start_time : 0; }} onTimeUpdate={e => { if (playMode === "shot" && e.currentTarget.currentTime >= detail.end_time) e.currentTarget.pause(); }} onError={() => setError("源视频无法打开：文件可能已移动或编码不受浏览器支持")} />}
+          {playback && <video key={detail.id} ref={video} controls src={api.librarySourceUrl(detail.id)}
+            onLoadedMetadata={e => applyPlayback(e.currentTarget, playback)}
+            onTimeUpdate={e => { if (playback.mode === "shot" && e.currentTarget.currentTime >= detail.end_time) e.currentTarget.pause(); }}
+            onError={() => setError("源视频无法打开。请检查文件是否已移动、被替换，或编码是否受支持。")} />}
           {notice && <p role="status">{notice}</p>}
           <h4>自动标签</h4><div className="shot-card-tags">{detail.automatic_tags.map(t => <span key={t} className="tag-chip">{t}</span>)}</div>
           <h4>手动标签</h4><div className="shot-card-tags">{detail.manual_tags.map(t => <button key={t} disabled={savingTags} onClick={() => updateTags(detail.manual_tags.filter(n => n !== t))}>{t} ×</button>)}</div>
           <div className="tag-editor"><input aria-label="新增手动标签" disabled={savingTags} value={tagName} onChange={e => setTagName(e.target.value)} placeholder="新增手动标签" onKeyDown={e => { if (e.key === "Enter") void createTag(); }} /><button disabled={savingTags} onClick={createTag}>添加</button></div>
           <h4>切镜节奏</h4><CutRhythmView rhythm={detail.rhythm} />
           <h4>画面观察</h4>{(detail.provider_versions.vision as {provider?:string}|undefined)?.provider==='disabled'&&<p className='muted'>基础分析已省略视觉、OCR 和排版语义模型</p>}<AnalysisFields value={detail.observations}/>
-          <details open><summary>运动分析</summary><AnalysisFields value={{semantic:detail.motion,measured:detail.measured_motion,summary:detail.motion_summary}}/></details>
+          <details open><summary>运动分析</summary><MotionTrajectoryView measured={detail.measured_motion} shotStart={detail.start_time} shotEnd={detail.end_time}/><AnalysisFields value={{semantic:detail.motion,measured:detail.measured_motion,summary:detail.motion_summary}}/></details>
           <details open><summary>文字与排版分析</summary>{detail.typography_tracks.map(t => <div key={t.track_id}><strong>{t.canonical_text}</strong><p>{labelValue('motion',t.movement)} / {labelValue('appearance',t.appearance)} · {t.frame_count} 帧</p><p>{labelValue('role',t.typography_analysis?.role)} · {labelValue('style',t.typography_analysis?.style_family)} · {labelValue('color',t.typography_analysis?.dominant_color)}</p><p>画面观察: {t.typography_analysis?.observations.join("; ") || "暂无"}</p><p>AE 实现推测: {t.typography_analysis?.ae_hypothesis.join("; ") || "暂无"}</p></div>)}</details>
-          <details><summary>AE 实现推测（实现推测）</summary><AnalysisFields value={detail.ae_hypothesis}/></details><details><summary>AE 制作建议</summary><p>根据成片推测，仅供制作参考</p><AnalysisFields value={detail.ae_recipe}/></details><details><summary>源素材技术信息</summary><pre>{JSON.stringify({ source: detail.source, analysis_version: detail.analysis_version, pipeline_version: detail.pipeline_version, providers: detail.provider_versions }, null, 2)}</pre></details>
+          <details><summary>AE 实现推测（实现推测）</summary><AnalysisFields value={detail.ae_hypothesis}/></details><details><summary>AE 制作建议</summary><p>根据成片推测，仅供制作参考</p><AnimationPlanView key={detail.id} plan={detail.ae_recipe?.animation_plan} geometry={detail.measured_motion} onSeekSource={time => openVideo("frame", time)} onExportAe={padded => api.exportLibraryAe(detail.id,padded)}/><AnalysisFields value={detail.ae_recipe}/></details><details><summary>源素材技术信息</summary><pre>{JSON.stringify({ source: detail.source, analysis_version: detail.analysis_version, pipeline_version: detail.pipeline_version, providers: detail.provider_versions }, null, 2)}</pre></details>
         </>}
         {!detail && <div className="tag-editor"><input aria-label="创建标签" disabled={savingTags} value={tagName} onChange={e => setTagName(e.target.value)} placeholder="创建标签" /><button disabled={savingTags} onClick={createTag}>创建</button></div>}
       </aside>

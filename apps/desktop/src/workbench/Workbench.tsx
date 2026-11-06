@@ -7,8 +7,9 @@ import { SelectionControls } from '../selection/SelectionControls';
 import { SelectionRecords, type useSelectionRecords } from '../selection/SelectionRecords';
 import { SelectionDetail } from '../selection/SelectionDetail';
 import type { SelectionRequest, SelectionRecord } from '../selection/selection';
+import { RegionTracker } from './RegionTracker';
 import './workbench.css';
-export function Workbench({video,source,shots,selected,audio,summary,busy,onSelect,onAnalyze,detail,selections,ensureProject,onSelectionSubmit}:{video:VideoInfo|null;source:string;shots:Shot[];selected:Shot|null;audio?:AudioAnalysis;summary?:RhythmSummary;busy:boolean;onSelect:(shot:Shot)=>void;onAnalyze:()=>void;detail:ReactNode;selections:ReturnType<typeof useSelectionRecords>;ensureProject:()=>Promise<number>;onSelectionSubmit:(request:SelectionRequest)=>Promise<void>}){
+export function Workbench({video,source,shots,selected,audio,summary,busy,onSelect,onAnalyze,detail,selections,ensureProject,onSelectionSubmit}:{video:VideoInfo|null;source:string;shots:Shot[];selected:Shot|null;audio?:AudioAnalysis;summary?:RhythmSummary;busy:boolean;onSelect:(shot:Shot)=>void;onAnalyze:()=>void;detail:(onSeek:(time:number)=>void)=>ReactNode;selections:ReturnType<typeof useSelectionRecords>;ensureProject:()=>Promise<number>;onSelectionSubmit:(request:SelectionRequest)=>Promise<void>}){
  const [showRecords,setShowRecords]=useState(false);
  useEffect(()=>{if(selections.selected)setShowRecords(true)},[selections.selected?.id]);
  const player=useRef<PreviewHandle>(null);const [playRange,setPlayRange]=useState<PlayRange|null>(null);
@@ -23,7 +24,8 @@ export function Workbench({video,source,shots,selected,audio,summary,busy,onSele
   if(request.kind==='frame'){const position=await api.framePosition(pid,request.frame.requested_time,request.frame.pts);request={kind:'frame',frame:position.frame,preview_token:position.preview_token}}
   await onSelectionSubmit(request);
  };
- const seekRecord=async(time:number)=>{if(!selections.selected)return;await api.verifySelectionSource(selections.selected.id);setPlayRange(null);setSeek(s=>({time,sequence:s.sequence+1}))};
+ const seekPreview=(time:number)=>{setPlayRange(null);setSeek(s=>({time,sequence:s.sequence+1}))};
+ const seekRecord=async(time:number)=>{if(!selections.selected)return;await api.verifySelectionSource(selections.selected.id);seekPreview(time)};
  const playRecord=async(start:number,end:number)=>{if(!selections.selected)return;await api.verifySelectionSource(selections.selected.id);play(start,end)};
  function splitter(key:'leftWidth'|'rightWidth'|'timelineHeight',sign:number){return {onPointerDown:(e:React.PointerEvent)=>{e.currentTarget.setPointerCapture(e.pointerId);const origin=key==='timelineHeight'?e.clientY:e.clientX;const initial=layout[key];const move=(event:PointerEvent)=>setLayout(prev=>({...prev,[key]:Math.max(key==='timelineHeight'?120:key==='rightWidth'?240:160,Math.min(key==='timelineHeight'?420:key==='rightWidth'?600:480,initial+sign*((key==='timelineHeight'?event.clientY:event.clientX)-origin)))}));const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up)};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up)},onKeyDown:(e:React.KeyboardEvent)=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();setLayout(prev=>({...prev,[key]:Math.max(key==='timelineHeight'?120:key==='rightWidth'?240:160,Math.min(key==='timelineHeight'?420:key==='rightWidth'?600:480,prev[key]+sign*(e.key==='ArrowLeft'||e.key==='ArrowUp'?-10:10)))}))}}}}
  const style={'--left-width':`${layout.leftCollapsed?34:layout.leftWidth}px`,'--right-width':`${layout.rightCollapsed?34:layout.rightWidth}px`,'--timeline-height':`${layout.timelineHeight}px`} as CSSProperties;
@@ -33,7 +35,7 @@ export function Workbench({video,source,shots,selected,audio,summary,busy,onSele
  <div role="separator" aria-label="调整镜头面板宽度" tabIndex={0} className="splitter vertical" {...splitter('leftWidth',1)}/>
  <section className="panel preview-panel"><h2>预览 <small>{video?.filename}</small><span>{playhead.toFixed(3)} 秒</span></h2><PreviewPanel ref={player} source={source} seekRequest={seek} onTimeChange={setPlayhead} playRange={playRange} onRangeExit={()=>setPlayRange(null)}/></section>
  <div role="separator" aria-label="调整详情面板宽度" tabIndex={0} className="splitter vertical" {...splitter('rightWidth',-1)}/>
- <aside className="panel inspector"><h2>{selections.selected?'局部分析详情':'镜头详情'}</h2>{!layout.rightCollapsed&&<div className="panel-scroll">{selections.selected?<SelectionDetail record={selections.selected} onPlay={playRecord} onSeek={seekRecord} onRetry={retry} busy={busy} onClose={selections.clear}/>:detail}</div>}</aside></div>
+ <aside className="panel inspector"><h2>{selections.selected?'局部分析详情':'镜头详情'}</h2>{!layout.rightCollapsed&&<div className="panel-scroll">{selections.selected?<SelectionDetail key={selections.selected.id} record={selections.selected} onPlay={playRecord} onSeek={seekRecord} onRetry={retry} busy={busy} onClose={selections.clear}/>:<>{selected&&<RegionTracker shotId={selected.shot_id} libraryId={selected.library_id} source={source} start={selected.time.start} end={selected.time.end} playhead={playhead}/>} {detail(seekPreview)}</>}</div>}</aside></div>
  <div role="separator" aria-label="调整时间轴高度" tabIndex={0} className="splitter horizontal" {...splitter('timelineHeight',-1)}/>
  <section className="panel timeline-panel">{video?<RhythmPanel audio={audio} summary={summary} shots={shots} selected={selected} duration={video.duration} source={source} busy={busy} onAnalyze={onAnalyze} onSelect={select} hidePlayer externalPlayhead={playhead}/>:<><h2>镜头与音频时间轴</h2><p className="muted">节拍、瞬态和切镜将在分析后显示</p></>}</section></div>
 }

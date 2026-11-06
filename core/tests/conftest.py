@@ -6,6 +6,27 @@ from app.config import reset_config
 from db.connection import get_db_path, set_db_path
 
 
+@pytest.fixture(scope='session')
+def sample_video(tmp_path_factory):
+    """Generate real media for API tests without relying on an untracked sample file."""
+    from tests.test_metadata import _create_test_video
+
+    return _create_test_video(tmp_path_factory.mktemp('media') / 'sample.mp4', duration=5)
+
+
+@pytest.fixture
+def paddle_metadata(monkeypatch):
+    """Stub native package metadata only in tests that already substitute the OCR engine."""
+    import importlib.metadata
+
+    real_version = importlib.metadata.version
+
+    def version(name):
+        return '3.3.1' if name == 'paddlepaddle' else real_version(name)
+
+    monkeypatch.setattr(importlib.metadata, 'version', version)
+
+
 @pytest.fixture(autouse=True)
 def isolated_library(tmp_path, monkeypatch):
     previous = get_db_path()

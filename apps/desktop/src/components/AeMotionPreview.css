@@ -1,0 +1,13 @@
+.ae-motion-preview {
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--mra-border, #3a3a3a);
+  border-radius: 4px;
+}
+.ae-motion-preview h5 { margin: 0; font-size: 14px; }
+.ae-motion-preview svg { display: block; margin: 8px auto; max-width: 100%; max-height: 190px; width: auto; height: auto; overflow: hidden; background: #090b11; }
+.ae-motion-preview label { display: block; font-size: 12px; }
+.ae-motion-preview input[type=range] { display: block; width: 100%; margin: 4px 0; accent-color: var(--mra-accent, #67a9e8); }
+.ae-motion-preview-clock { margin: 4px 0; font-variant-numeric: tabular-nums; color: var(--mra-muted, #b5b5b5); }
+
+.ae-motion-preview-steps { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0; }

@@ -26,9 +26,9 @@ def _make_test_image(path: Path, color: tuple[int, int, int] = (128, 128, 128)) 
     return path
 
 
-def test_mock_provider_returns_valid_schema():
+def test_mock_provider_returns_valid_schema(tmp_path):
     provider = MockVisionProvider()
-    shot_dir = Path("/tmp/mra_test/mock_shot")
+    shot_dir = tmp_path / "mock_shot"
     shot_dir.mkdir(parents=True, exist_ok=True)
 
     images = [_make_test_image(shot_dir / f"frame_{i:02d}.jpg") for i in range(3)]
