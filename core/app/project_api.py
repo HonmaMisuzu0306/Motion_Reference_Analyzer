@@ -39,9 +39,7 @@ def projects():
                 **asdict(p),
                 "name": p.display_name or p.name,
                 "internal_name": p.name,
-                "shot_count": lib._conn.execute(
-                    "SELECT COUNT(*) FROM shots WHERE project_id=?", (p.id,)
-                ).fetchone()[0],
+                "shot_count": lib.count_current_shots(p.id),
                 "source_available": bool(p.video_path and resolve_path(p.video_path).is_file()),
             }
         )

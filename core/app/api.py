@@ -179,7 +179,10 @@ def _persist_to_library(*, raise_identity_conflict: bool = False) -> bool:
         _project_state.library_project_id = lib.save_analysis(_project_state)
         _project_state.library_warning = ""
         from projects.session import SessionState, write_session
-        write_session(SessionState(project_id=_project_state.library_project_id))
+        try:
+            write_session(SessionState(project_id=_project_state.library_project_id))
+        except OSError:
+            logging.getLogger(__name__).warning('分析已保存，会话恢复偏好写入失败', exc_info=True)
         return True
     except Exception as exc:
         if raise_identity_conflict and isinstance(exc, SourceIdentityMismatch):
@@ -252,6 +255,7 @@ class AnalyzeRequest(BaseModel):
 @_exclusive_project_operation
 def analyze_video(req: AnalyzeRequest | None = None):
     global _project_state
+    previous = _project_state
     tracker = AnalysisProgressTracker(_project_state)
 
     if _project_state.video is None or _project_state.video_path is None:
@@ -618,12 +622,19 @@ def analyze_video(req: AnalyzeRequest | None = None):
         _persist_project_state()
         _project_state.analysis_status = "completed_with_warnings" if has_warnings else "done"
         _project_state.analysis_message = '分析完成（部分步骤存在警告）' if has_warnings else '分析完成'
-        if config.auto_save_to_library and not _persist_to_library():
+        library_saved = config.auto_save_to_library and _persist_to_library()
+        if config.auto_save_to_library and not library_saved:
             has_warnings = True
         tracker.complete_stage("saving")
 
         tracker.finish_analysis(has_warnings=has_warnings)
-        _persist_project_state()
+        try:
+            _persist_project_state()
+        except OSError as exc:
+            if not library_saved:
+                raise
+            _project_state.library_warning = f"分析已保存到参考库，项目文件写入失败: {exc}"
+            tracker.finish_analysis(has_warnings=True)
 
         return {
             "status": "ok",
@@ -632,9 +643,13 @@ def analyze_video(req: AnalyzeRequest | None = None):
         }
 
     except HTTPException as exc:
+        _project_state = previous
+        tracker.project = previous
         tracker.set_error(_project_state.progress.stage,str(exc.detail))
         raise
     except Exception as exc:
+        _project_state = previous
+        tracker.project = previous
         tracker.set_error(_project_state.progress.stage, f"分析失败: {exc}")
         raise HTTPException(status_code=500, detail=_project_state.analysis_message) from exc
 

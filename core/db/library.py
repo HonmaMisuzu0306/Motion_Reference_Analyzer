@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+from copy import copy
 from typing import Any
 
 from db.automatic_tags import automatic_tags
@@ -65,18 +66,34 @@ class ReferenceLibrary:
         """One transaction: a failed save never leaves a partially imported analysis."""
         with self._conn:
             pid = self.save_project(project, commit=False)
+            self._conn.execute("UPDATE shots SET provider_versions="
+                               "json_set(provider_versions,'$.analysis_current',json('false')) "
+                               "WHERE project_id=?", (pid,))
             for shot in project.shots:
-                self.save_shot(shot, pid, commit=False)
+                saved_shot = copy(shot)
+                saved_shot.provider_versions = {**shot.provider_versions, 'analysis_current': True}
+                self.save_shot(saved_shot, pid, commit=False)
         return pid
 
     def load_project(self, project_id: int) -> tuple[LibraryProject, list[LibraryShot]]:
         project = self.get_project(project_id)
-        shots = self._shots.list_by_project(project_id)
+        shots = self._current_shots(project_id)
         for shot in shots:
             shot.tags = [t.name for t in self._tags.get_shot_tags(shot.id)]
             shot.manual_tags = self._tags.manual_names(shot.id)
             shot.automatic_tags = self._tags.automatic_names(shot.id)
         return project, shots
+
+    def _current_shots(self, project_id: int) -> list[LibraryShot]:
+        shots = self._shots.list_by_project(project_id)
+        # Membership is transactional; asset paths may change during import or metadata saves.
+        # Unmarked legacy rows remain readable until an analysis defines the current set.
+        if any('analysis_current' in shot.provider_versions for shot in shots):
+            return [shot for shot in shots if shot.provider_versions.get('analysis_current') is True]
+        return shots
+
+    def count_current_shots(self, project_id: int) -> int:
+        return len(self._current_shots(project_id))
 
     def get_project(self, project_id: int) -> LibraryProject:
         project = self._projects.get(project_id)
@@ -142,33 +159,29 @@ class ReferenceLibrary:
         self._tags.set_shot_tags(db_id, tag_names)
         return True
 
+    def _tag_target(self, project_id: int, shot_id: str) -> LibraryShot | None:
+        matches = [shot for shot in self._current_shots(project_id) if shot.shot_id == shot_id]
+        # Before current-set markers existed, duplicate labels targeted the latest row.
+        return max(matches, key=lambda shot: shot.id, default=None)
+
     def tag_shot(self, project_id: int, shot_id: str, tag_name: str) -> bool:
-        row = self._conn.execute(
-            "SELECT id FROM shots WHERE project_id = ? AND shot_id = ? ORDER BY id DESC LIMIT 1",
-            (project_id, shot_id),
-        ).fetchone()
-        if row is None:
+        shot = self._tag_target(project_id, shot_id)
+        if shot is None:
             return False
-        self._tags.add_shot_tag(row["id"], tag_name)
+        self._tags.add_shot_tag(shot.id, tag_name)
         return True
 
     def untag_shot(self, project_id: int, shot_id: str, tag_name: str) -> bool:
-        row = self._conn.execute(
-            "SELECT id FROM shots WHERE project_id = ? AND shot_id = ? ORDER BY id DESC LIMIT 1",
-            (project_id, shot_id),
-        ).fetchone()
-        if row is None:
+        shot = self._tag_target(project_id, shot_id)
+        if shot is None:
             return False
-        return self._tags.remove_shot_tag(row["id"], tag_name)
+        return self._tags.remove_shot_tag(shot.id, tag_name)
 
     def set_shot_tags(self, project_id: int, shot_id: str, tag_names: list[str]) -> bool:
-        row = self._conn.execute(
-            "SELECT id FROM shots WHERE project_id = ? AND shot_id = ? ORDER BY id DESC LIMIT 1",
-            (project_id, shot_id),
-        ).fetchone()
-        if row is None:
+        shot = self._tag_target(project_id, shot_id)
+        if shot is None:
             return False
-        self._tags.set_shot_tags(row["id"], tag_names)
+        self._tags.set_shot_tags(shot.id, tag_names)
         return True
 
     def list_tags(self) -> list[Any]:

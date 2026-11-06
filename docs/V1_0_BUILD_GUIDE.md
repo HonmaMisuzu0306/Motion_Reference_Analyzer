@@ -1,5 +1,7 @@
 # V1.0 构建
 
+v1.10.0 发布修订构建使用 Python 3.13.7、PyAV 19.0.2、Starlette 1.10.0。完整依赖版本与许可随本版第三方说明包提供。下文保留早期构建与验收记录。
+
 v1.1.0 本地安装包使用 Python 3.12.14、PyInstaller 6.22.3 构建。NSIS 对输入文件路径有长度限制，建议将源码解压到简短目录（例如 `E:\MRA`）；内存紧张时设置 `$env:CARGO_BUILD_JOBS='1'`。冻结配置会保留构建 Python 随附的 SSL 信任策略文件，避免冻结程序加载网络组件时缺失资源。
 
 在 Windows x64 上准备 Node/npm、Rust/MSVC 和项目 Python 3.13 虚拟环境。
