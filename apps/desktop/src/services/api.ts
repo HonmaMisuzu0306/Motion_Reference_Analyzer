@@ -5,6 +5,7 @@ const fetch = isTauri() ? tauriFetch : window.fetch.bind(window);
 
 import { apiEndpoint } from './runtime';
 import type { FramePosition, SelectionRecord, SelectionRequest } from '../selection/selection';
+import type { RegionBox, RegionFrame, RegionResult, TwoPinResult } from '../workbench/regionTypes';
 const apiBase=()=>`${apiEndpoint}/api/v1`;
 
 export interface VideoInfo {
@@ -105,6 +106,7 @@ export interface TextTrack {
 }
 
 export interface TypographyRecipe {
+  track_id?: string | null;
   text: string;
   role: string;
   start_time: number;
@@ -134,10 +136,32 @@ export interface AEHypothesis {
   notes?: string;
 }
 
+export interface MotionSample {
+  source_time: number;
+  segment_id: number;
+  segment_start_time: number;
+  translation_x_ratio: number;
+  translation_y_ratio: number;
+  scale_ratio: number;
+  rotation_deg: number;
+  translation_x_px?: number;
+  translation_y_px?: number;
+}
+
 export interface MeasuredMotion {
   status?: string;
   method?: string;
   message?: string;
+  frame_width?: number;
+  frame_height?: number;
+  translation_reference?: 'legacy_top_left' | 'frame_center';
+  trajectory_status?: 'not_measured' | 'complete' | 'partial';
+  trajectory?: MotionSample[];
+  mixed_support_pair_count?: number;
+  long_baseline_check_count?: number;
+  long_baseline_conflict_count?: number;
+  spatially_limited_pair_count?: number;
+  sampling_target_fps?: number | null;
   sample_count?: number;
   valid_pair_count?: number;
   total_pair_count?: number;
@@ -167,6 +191,7 @@ export interface MotionSummary {
 }
 
 export interface AERecipe {
+  animation_plan?: Record<string, unknown>;
   layers?: Array<{ role: string; suggestion: string }>;
   camera?: { type?: string; strength?: number; confidence?: number };
   transform?: Record<string, unknown>;
@@ -269,6 +294,7 @@ export interface ProjectStatus {
   message: string;
   video: VideoInfo | null;
   video_path: string | null;
+  video_source_id: string;
   shot_count: number;
   progress: AnalysisProgress;
   library_warning?: string;
@@ -304,7 +330,7 @@ export interface LibraryShot {
 export interface LibraryShotDetail extends LibraryShot {
   observations: Record<string, unknown>;
   motion: Record<string, unknown>;
-  measured_motion: Record<string, unknown>;
+  measured_motion: MeasuredMotion;
   motion_summary: Record<string, unknown>;
   typography: Record<string, unknown>;
   typography_tracks: TextTrack[];
@@ -380,24 +406,38 @@ export function getFrameUrl(shotId: string, frameName: string, libraryId?: numbe
 }
 
 export const api = {
-  framePosition:(pid:number,time:number,pts?:number,direction:'current'|'previous'|'next'='current')=>get(`/projects/${pid}/frame-position?time=${time}&direction=${direction}${pts==null?'':`&pts=${pts}`}`) as Promise<FramePosition>,
+  regionFrame: (shotId: string, identity: string, time: number, libraryId?: number | null) =>
+    get(`/shots/${encodeURIComponent(shotId)}/region-frame?identity=${encodeURIComponent(identity)}&time=${time}${libraryId == null ? '' : `&library_id=${libraryId}`}`) as Promise<RegionFrame>,
+  trackRegion: (shotId: string, request: {identity: string; anchor_time: number; end_time: number; box: RegionBox}, libraryId?: number | null) =>
+    post(`/shots/${encodeURIComponent(shotId)}/region-track`, {...request, library_id: libraryId ?? undefined}) as Promise<RegionResult>,
+  exportRegionAe: (shotId: string, trackId: string, identity: string, libraryId?: number | null) =>
+    post(`/shots/${encodeURIComponent(shotId)}/region-tracks/${encodeURIComponent(trackId)}/export/ae`, {identity, library_id: libraryId ?? undefined}) as Promise<{path: string}>,
+  trackTwoPins: (shotId: string, identity: string, trackA: string, trackB: string, libraryId?: number | null) =>
+    post(`/shots/${encodeURIComponent(shotId)}/two-pin-track`, {identity, library_id: libraryId ?? undefined,
+      track_a_id: trackA, track_b_id: trackB, same_layer_confirmed: true}) as Promise<TwoPinResult>,
+  exportTwoPinAe: (shotId: string, trackId: string, identity: string, libraryId?: number | null) =>
+    post(`/shots/${encodeURIComponent(shotId)}/two-pin-tracks/${encodeURIComponent(trackId)}/export/ae`,
+      {identity, library_id: libraryId ?? undefined}) as Promise<{path: string}>,
+  framePosition:(pid:number,time:number,pts?:number,direction:'current'|'previous'|'next'|'presented'='current')=>get(`/projects/${pid}/frame-position?time=${time}&direction=${direction}${pts==null?'':`&pts=${pts}`}`) as Promise<FramePosition>,
   previewUrl:(value:string)=>`${apiEndpoint}${value}`,
   submitSelection:(pid:number,request:SelectionRequest)=>post(`/projects/${pid}/selection-analyses`,request) as Promise<{record_id:string}>,
   selectionRecords:(pid:number,offset=0)=>get(`/projects/${pid}/selection-analyses?limit=20&offset=${offset}`) as Promise<{items:SelectionRecord[];total:number}>,
   selectionRecord:(id:string)=>get(`/selection-analyses/${encodeURIComponent(id)}`) as Promise<SelectionRecord>,
   verifySelectionSource:(id:string)=>get(`/selection-analyses/${encodeURIComponent(id)}/source-check`) as Promise<{source_available:boolean}>,
   selectionAssetUrl:(id:string,name:string)=>`${apiBase()}/selection-analyses/${encodeURIComponent(id)}/assets/${name.split('/').map(encodeURIComponent).join('/')}`,
-  exportSelection:(id:string,format:'json'|'markdown')=>post(`/selection-analyses/${encodeURIComponent(id)}/export`,{format}) as Promise<{path:string}>,
+  exportSelection:(id:string,format:'json'|'markdown'|'ae_blend')=>post(`/selection-analyses/${encodeURIComponent(id)}/export`,{format}) as Promise<{path:string}>,
+  exportSelectionAe:(id:string,shotId:string,padded=false)=>post(`/selection-analyses/${encodeURIComponent(id)}/shots/${encodeURIComponent(shotId)}/export/ae${padded ? '?padded=true' : ''}`) as Promise<{path:string;message:string}>,
   importVideo: (path: string) => post("/video/import", { path }),
   analyzeVideo: (mode:'full'|'basic'='full') => post("/video/analyze",{mode}),
   analyzeAudio: (force = false) => post("/video/analyze-audio", { force }),
   videoSourceUrl: (identity: string) => `${apiBase()}/video/source?identity=${encodeURIComponent(identity)}`,
   projectStatus: () => get("/project/status") as Promise<ProjectStatus>,
-  listShots: () => get("/shots") as Promise<{ shots: Shot[] }>,
+  listShots: () => get("/shots") as Promise<{ shots: Shot[]; video_source_id: string }>,
   getShot: (id: string) => get(`/shots/${id}`) as Promise<Shot>,
   getFrameUrl,
   exportJson: () => post("/export/json"),
   exportMarkdown: () => post("/export/markdown"),
+  exportShotAe: (shotId: string, padded = false) => post(`/shots/${encodeURIComponent(shotId)}/export/ae${padded ? '?padded=true' : ''}`) as Promise<{path:string;message:string}>,
   listLibraryProjects: () => get("/library/projects") as Promise<{ projects: LibraryProject[] }>,
   getLibraryProject: (id: number) => get(`/library/projects/${id}`) as Promise<{ project: LibraryProject; shots: LibraryShot[] }>,
   loadLibraryProject: (id: number) => post(`/library/projects/${id}/load`) as Promise<{ status: string; shot_count: number }>,
@@ -408,6 +448,7 @@ export const api = {
   librarySourceUrl: (id: number) => `${apiBase()}/library/shots/${id}/source`,
   getLibraryRecipe: (id: number) => get(`/library/shots/${id}/recipe`) as Promise<AERecipe>,
   exportLibraryRecipe: (id: number) => post(`/library/shots/${id}/export/recipe`) as Promise<{ path: string }>,
+  exportLibraryAe: (id: number, padded = false) => post(`/library/shots/${id}/export/ae${padded ? '?padded=true' : ''}`) as Promise<{path:string;message:string}>,
   setLibraryShotTags: (id: number, tags: string[]) => mutate(`/library/shots/${id}/tags`, "PUT", { tags }) as Promise<LibraryShotDetail>,
   deleteTag: (id: number) => mutate(`/tags/${id}`, "DELETE"),
   listTags: () => get("/tags") as Promise<{ tags: Tag[] }>,

@@ -27,12 +27,15 @@ def write_wav(path, y, sr=22050):
     return path
 
 
-def write_av_video(path, *, audio=True, silent=False, offset=0.0, duration=8, cuts=(2, 4, 6), origin=0):
+def write_av_video(path, *, audio=True, silent=False, offset=0.0, duration=8, cuts=(2, 4, 6), origin=0,
+                   rotation=0, hflip=False):
     """MP4 with video cut at2/4/6s and AAC clicks; real encoded media, no model stub."""
     sr, fps = 44100, 24
     with av.open(str(path), 'w') as out:
         video = out.add_stream('libx264', rate=fps)
         video.width, video.height, video.pix_fmt = 160, 120, 'yuv420p'
+        if rotation or hflip:
+            video.set_display_rotation(rotation, hflip=hflip)
         sound = out.add_stream('aac', rate=sr) if audio else None
         if sound:
             sound.layout = 'mono'

@@ -21,7 +21,7 @@ def rounded_real_adapter(monkeypatch):
     return PaddleOCRProvider(['japan'])
 
 
-def test_strict_ocr_overrides_provider_rounding_for_boundary_and_color(tmp_path, monkeypatch):
+def test_strict_ocr_overrides_provider_rounding_for_boundary_and_color(tmp_path, monkeypatch, paddle_metadata):
     provider = rounded_real_adapter(monkeypatch)
     path = write_av_video(tmp_path / 'source.mp4', duration=1)
     result = ShotOCRAnalyzer(provider, strict_range=True).analyze(path, .041, .042)

@@ -13,7 +13,8 @@ import av
 import numpy as np
 from PIL import Image
 
-from video.timing import video_origin
+from video.orientation import display_bgr
+from video.timing import relative_frame_time, video_origin
 
 
 def sample_ocr_frames(
@@ -55,7 +56,7 @@ def sample_ocr_frames(
     frames: list[dict[str, Any]] = []
     with av.open(str(video_path)) as container:
         video_stream = next(s for s in container.streams if s.type == "video")
-        time_base = float(video_stream.time_base)
+        time_base = video_stream.time_base
         origin = video_origin(video_stream)
 
         for i in range(1, frame_count + 1):
@@ -71,11 +72,11 @@ def sample_ocr_frames(
             best_frame = None
             best_diff = float("inf")
             for frame in container.decode(video_stream):
-                frame_pts = float(frame.pts * time_base) - origin
+                frame_pts = relative_frame_time(video_stream, frame.pts, frame.time_base)
                 diff = abs(frame_pts - timestamp)
                 if diff < best_diff:
                     best_diff = diff
-                    best_frame = frame.to_ndarray(format="bgr24")
+                    best_frame = display_bgr(frame, video_stream)
                 if frame_pts >= timestamp:
                     break
 

@@ -12,6 +12,34 @@ from cv.thresholds import (
 )
 
 
+def _supplement_sparse_tiles(gray: np.ndarray, features: np.ndarray) -> np.ndarray:
+    """Look for quieter texture where one high-contrast layer monopolized the detector."""
+    h, w = gray.shape
+    additions = []
+    points = features.reshape(-1, 2)
+    columns, rows = 8, 6
+    cell = (points[:, 0].astype(int) * columns // w
+            + columns * (points[:, 1].astype(int) * rows // h))
+    counts = np.bincount(cell, minlength=columns * rows)
+    for index in np.flatnonzero(counts < 2):
+        row, col = divmod(int(index), columns)
+        x, right = (col * w + columns - 1) // columns, ((col + 1) * w + columns - 1) // columns
+        y, bottom = (row * h + rows - 1) // rows, ((row + 1) * h + rows - 1) // rows
+        if min(right - x, bottom - y) < 12:
+            continue
+        tile = gray[y:bottom, x:right]
+        if tile.std() < 5:
+            continue
+        mask = np.full(tile.shape, 255, np.uint8)
+        for px, py in points[cell == index]:
+            cv2.circle(mask, (round(px - x), round(py - y)), FEATURE_MIN_DISTANCE, 0, -1)
+        found = cv2.goodFeaturesToTrack(tile, 8, FEATURE_QUALITY, FEATURE_MIN_DISTANCE,
+                                        mask=mask, blockSize=7)
+        if found is not None:
+            additions.append(found + np.array([x, y], dtype=np.float32))
+    return np.concatenate([features, *additions]) if additions else features
+
+
 def detect_and_track_features(
     gray1: np.ndarray,
     gray2: np.ndarray,
@@ -40,6 +68,7 @@ def detect_and_track_features(
             "success": False,
         }
 
+    features = _supplement_sparse_tiles(gray1, features)
     next_pts, status, err = cv2.calcOpticalFlowPyrLK(
         gray1,
         gray2,
@@ -76,3 +105,4 @@ def detect_and_track_features(
         "tracked": len(good_src),
         "success": True,
     }
+

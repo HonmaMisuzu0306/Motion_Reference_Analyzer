@@ -176,6 +176,7 @@ def test_nonzero_origin_legacy_shots_require_reanalysis_and_do_not_pollute_new_s
                      shots=[Shot(shot_id=f'shot_{i:03d}', time=TimeRange(start=start, end=end, duration=end-start))
                             for i, (start, end) in enumerate([(0, 12), (12, 14), (14, 16)], 1)])
     pid = api._get_library().save_analysis(legacy)
+    legacy_ids = [shot.id for shot in api._get_library().list_shots(pid)]
     client = TestClient(app)
     assert client.post(f'/api/v1/library/projects/{pid}/load').status_code == 200
     retried = client.post('/api/v1/video/analyze-audio').json()
@@ -189,4 +190,8 @@ def test_nonzero_origin_legacy_shots_require_reanalysis_and_do_not_pollute_new_s
     retried = client.post('/api/v1/video/analyze-audio').json()
     assert retried['rhythm_summary']['synced_cut_count'] == 3
     assert retried['rhythm_summary']['cut_count'] == 3
-    assert retried['rhythm_summary']['excluded_shot_count'] == 3
+    # Reopening restores the current analysis; legacy rows remain in the archive.
+    assert retried['rhythm_summary']['excluded_shot_count'] == 0
+    assert len(client.get('/api/v1/shots').json()['shots']) == 4
+    assert all(api._get_library().get_shot(sid).provider_versions['analysis_current'] is False
+               for sid in legacy_ids)

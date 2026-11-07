@@ -2,57 +2,43 @@ from pathlib import Path
 from typing import Any
 
 import av
-import numpy as np
 
-from video.timing import video_origin
-
-
-def _frame_hash(frame: np.ndarray, bins: int = 16) -> np.ndarray:
-    """生成降采样后的帧特征向量，用于快速比较。"""
-    h, w = frame.shape[:2]
-    small = frame[::h // bins, ::w // bins]
-    return np.mean(small.reshape(-1, 3), axis=0)
+from video.orientation import display_bgr
+from video.scene_features import SCENE_CUT_THRESHOLD, SceneBoundaryDetector
+from video.timing import picture_end, relative_frame_time
 
 
 def detect_scenes(
     video_path: str | Path,
-    threshold: float = 25.0,
-    min_shot_duration: float = 0.5,
+    threshold: float = SCENE_CUT_THRESHOLD,
+    min_shot_duration: float = 0.0,
 ) -> list[dict[str, Any]]:
-    """基于帧间差异的简单分镜检测。
-
-    在无法使用 PySceneDetect 的环境中作为降级方案。
-    """
+    """结合空间变化、连续平移与闪光证据检测硬切，默认保留快速剪辑。"""
     path = Path(video_path)
     if not path.exists():
         raise FileNotFoundError(f"视频文件不存在: {path}")
 
     cuts = [0.0]
-    prev_hash = None
-    prev_time = 0.0
+    detector = SceneBoundaryDetector(threshold)
+
+    def publish(times):
+        for timestamp in times:
+            if timestamp > cuts[-1] and timestamp - cuts[-1] >= min_shot_duration:
+                cuts.append(timestamp)
 
     with av.open(str(path)) as container:
         video_stream = next(s for s in container.streams if s.type == "video")
-        time_base = float(video_stream.time_base)
-        origin = video_origin(video_stream)
-        current_time = 0.0
+        time_base = video_stream.time_base
+        duration = float(video_stream.duration * time_base) if video_stream.duration is not None else 0.0
 
         for frame in container.decode(video_stream):
-            current_time = float(frame.pts * time_base) - origin
-            img = frame.to_ndarray(format="bgr24")
-            current_hash = _frame_hash(img)
+            current_time = relative_frame_time(video_stream, frame.pts, frame.time_base)
+            if video_stream.duration is None:
+                duration = max(duration, picture_end(video_stream, frame))
+            img = display_bgr(frame, video_stream)
+            publish(detector.push(current_time, img))
 
-            if prev_hash is not None:
-                diff = float(np.linalg.norm(current_hash - prev_hash))
-                if diff > threshold and (current_time - prev_time) >= min_shot_duration:
-                    cuts.append(current_time)
-                    prev_time = current_time
-
-            prev_hash = current_hash
-
-        # Stream duration is a length, unlike absolute frame timestamps.
-        duration = (float(video_stream.duration * time_base) if video_stream.duration is not None
-                    else current_time + (1 / float(video_stream.average_rate) if video_stream.average_rate else 0))
+        publish(detector.finish())
 
     if cuts[-1] < duration:
         cuts.append(duration)
@@ -63,17 +49,17 @@ def detect_scenes(
         end = cuts[idx + 1]
         shots.append({
             "shot_id": f"shot_{idx + 1:03d}",
-            "start": round(start, 3),
-            "end": round(end, 3),
-            "duration": round(end - start, 3),
+            "start": start,
+            "end": end,
+            "duration": end - start,
         })
 
     if not shots:
         shots.append({
             "shot_id": "shot_001",
             "start": 0.0,
-            "end": round(duration, 3),
-            "duration": round(duration, 3),
+            "end": duration,
+            "duration": duration,
         })
 
     return shots

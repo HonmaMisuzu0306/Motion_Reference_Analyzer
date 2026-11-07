@@ -12,6 +12,9 @@ LUCAS_KANADE_LEVELS = 2
 
 # RANSAC / 变换估计
 RANSAC_THRESHOLD = 3.0
+# Calibrated on synthetic full-plane movements and localized moving patches.
+MIN_SUPPORT_HULL_FRACTION = 0.15
+MIN_SUPPORT_CENTRAL_SPAN = 0.25
 MIN_INLIER_RATIO = 0.25
 MIN_TRACKED_FEATURES = 8
 

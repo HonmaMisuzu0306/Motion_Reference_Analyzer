@@ -1,99 +1,86 @@
 # Motion Reference Analyzer
 
-面向静止画 MAD / Galgame OP / PV 创作者的镜头参考分析与 AE 拆解工具。
+Motion Reference Analyzer（MRA）是一款面向 **静止画 MAD、Galgame OP、PV 与二维动效创作者** 的 Windows 本地桌面工具。它帮助你拆看参考片的镜头、运动、文字与转场，把可测量的部分整理成曲线、制作建议和可在 After Effects 中继续编辑的素材。
 
-目标：将参考视频自动拆解为 **镜头时间轴、画面结构、运动信息、文字信息、效果推测与 AE 制作建议**，并为后续与 **LocalFX** 联动预留结构化接口。
+适合研究参考片的运镜节奏、整理镜头资料，以及用自己的图片、图稿和标注试作相似动效。
 
-## V1.0 Windows 桌面版
+[下载 v1.10.0](https://github.com/HonmaMisuzu0306/Motion_Reference_Analyzer/releases/tag/v1.10.0) · [使用与模型准备](docs/V1_0_USAGE.md) · [本版更新](docs/RELEASE_v1.10.0.md)
 
-从 [GitHub Release v1.0.0](https://github.com/HonmaMisuzu0306/Motion_Reference_Analyzer/releases/tag/v1.0.0) 下载 `MRA-1.0.0-x64-setup.exe`，无需系统 Python/Node/Rust。支持 Windows 10/11 x64。
-深灰工作台与原创图标、中文界面、项目恢复/重连、外部模型推荐与配置、基础分析及完整分析、参考库和导出已实现。
-模型权重不随应用提供，由用户从“模型”页的官网入口自行取得；基础分析无需模型。
+## 可以做什么
 
-- [使用与外部模型准备](docs/V1_0_USAGE.md)
-- [1.0 功能与验证范围](docs/RELEASE_v1.0.0.md)
-- [源码构建](docs/V1_0_BUILD_GUIDE.md)
+| 你的任务 | MRA 提供的工具 |
+| --- | --- |
+| 拆看一支参考片 | 自动分镜、代表帧、联系表与镜头时间轴，结合原片回看构图和切换节奏。音频面板提供波形、瞬态及条件允许时的 BPM、节拍与切镜同步参考。 |
+| 研究画面怎样移动 | 查看全局二维位移、缩放和旋转曲线，按实测时间回查源帧，并查看可展开的关键帧建议。 |
+| 给移动图案加标注 | 框选清晰图案进行区域位置跟踪，或在同一刚性图案上选择两个标记，测量位置、转角与等比缩放。 |
+| 仔细分析局部 | 定位准确单帧，或设置最长 60 秒的片段选区。局部结果独立保存，可回看、重试并导出 JSON 或 Markdown。 |
+| 测量两张静帧之间的叠化 | 逐帧估算顶层不透明度，比较解码 RGB 与线性光混合，导出两张静帧、可编辑 AE 关键帧及实际中间帧对照。 |
+| 建立自己的参考库 | 保存项目和镜头，搜索、筛选、添加标签，重开项目继续查看。源文件移动后可按内容身份重新关联。 |
 
-安装版数据默认保存在 `%LOCALAPPDATA%/MotionReferenceAnalyzer`。开发旧库不会被自动迁移，可在空库显式导入副本；源码开发命令继续见下方。
+## 从参考片到 AE 试作
 
-新增自选分析：点击“分析当前帧”即可分析准确画面，也可用上一帧/下一帧微调；设置入点/出点分析最长60秒片段。局部结果独立保存，可回看、重试和导出，不覆盖整片镜头结果。单帧只提供静态分析，片段少于8秒不估计BPM。
+1. **导入视频，先运行基础分析。** 查看镜头列表、代表帧、运动曲线和音频节奏，点击时间回到原片核对。
+2. **选定需要研究的画面。** 用上一帧、下一帧微调单帧，或设置片段入点、出点。需要跟随图案时，在镜头详情中使用区域跟踪或双点跟踪。
+3. **需要叠化时单独测量。** 选区应包含一次完整的两张静帧全画面叠化，两端各留至少 0.15 秒静止画面，最长 6 秒、最多 360 帧。测量成功后可查看不透明度制作表。
+4. **选择对应的 AE 导出。** 有效的全局运动曲线可导出试作 JSX，区域和双点跟踪可导出带关键帧的空对象，叠化可导出包含静帧与脚本的 ZIP 素材包。
+5. **在 AE 中继续制作。** 将素材包完整解压，通过“文件 → 脚本 → 运行脚本文件”运行 JSX。在新建的合成中替换素材、调整关键帧，并与原片对照。叠化包还提供实际中间帧的差值对照合成。
 
----
+[全局运动与 AE 试作](docs/AE_MOTION_WORKFLOW.md) · [区域跟踪](docs/RELEASE_v1.6.0.md) · [双点跟踪](docs/RELEASE_v1.7.0.md) · [叠化测量与素材包](docs/RELEASE_v1.10.0.md)
 
-## 项目结构
+## 安装与本地运行
 
-```text
-motion-reference-analyzer/
-├─ apps/
-│  └─ desktop/              # Tauri 2 + React + TypeScript 桌面端
-├─ core/                    # Python 分析核心
-│  ├─ app/                  # FastAPI 入口与 API
-│  ├─ video/                # 视频元数据、解码、分镜、采样
-│  ├─ vision/               # 本地 VLM 接口
-│  ├─ cv/                   # 传统 CV 运动分析
-│  ├─ ocr/                  # 文字识别与排版分析
-│  ├─ recipe/               # AE Recipe 生成
-│  ├─ schemas/              # Pydantic 数据模型
-│  └─ tests/                # 单元测试
-├─ docs/                    # 架构文档
-├─ samples/                 # 示例视频
-├─ output/                  # 项目输出
-└─ scripts/                 # 脚本工具
-```
+支持 Windows 10/11 x64，桌面界面使用 Microsoft Edge WebView2。安装包自带 Python 分析运行时，安装和启动步骤见[使用说明](docs/V1_0_USAGE.md)。
 
----
+基础分析、区域跟踪和独立叠化测量使用本机视频像素，可以先从这些功能开始。完整分析中的视觉语义、OCR 和排版语义需要另行配置本机 Ollama 视觉模型与 PaddleOCR 推理模型。模型权重由用户准备，可在“模型”页检查、选择，并在“设置”中配置。模型文件与本机服务准备好后可离线分析，获取模型及访问官网入口需要网络。
 
-## 快速开始
+项目、缓存、设置和日志默认保存在 `%LOCALAPPDATA%\MotionReferenceAnalyzer`。旧开发库可在“项目”页的空参考库中显式导入副本。项目保存和重开使用当前分析的镜头集合，历史镜头与标签仍可在参考库中查阅。
 
-### Python 核心
+## 使用时需要核对的部分
 
-```bash
-cd core
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
-```
+- 分镜、OCR 和跟踪结果需要人工复核。遮挡、低纹理、高速变化、独立图层运动与明显透视都可能降低测量的可用性。
+- 运动曲线来自实际采样，采用二维近似与线性关键帧。原工程的分层、3D 相机、插件和缓动参数需要另行制作，采样间隔内的快速变化也需要回看片中确认。
+- 独立叠化测量面向两张静止画面之间的全画面混合。运动底图、擦除、曝光变化或细节不足可能触发重选提示。显式标记为 HDR 或宽色域的素材需先准备 SDR 转换副本，AE 的颜色管理与混合设置会影响复现亮度。
+- 单帧分析提供静态画面信息。片段不足 8 秒时，音频分析保留波形和瞬态，BPM 与节拍同步需更长的有效音频。各功能的验证范围和已知限制记录在使用流程与版本说明中。
 
-或直接从项目根目录启动：
+## 源码开发
 
-```bash
-python scripts/start_server.py
-```
+桌面端使用 Tauri 2、React 与 TypeScript，分析核心使用 Python 与 FastAPI。Windows 开发需要 Python、Node/npm、Rust/MSVC 和 WebView2。当前发布构建使用 Python 3.13，完整依赖与打包要求见[构建与验证说明](docs/V1_0_BUILD_GUIDE.md)。
 
-### 前端
+在仓库根目录准备环境并启动桌面开发版。
 
-```bash
+```powershell
+py -3.13 -m venv core/.venv
+core/.venv/Scripts/python.exe -m pip install -e "./core[dev,ocr]"
 cd apps/desktop
-npm install
+npm ci
 npm run tauri dev
 ```
 
-`scripts/start_server.py` 优先使用 `core/.venv` 的 Python。M6 音频依赖 librosa 随核心安装；前端本次已通过 TypeScript 与 Vite 构建验证。
+单独调试核心服务时，从仓库根目录运行以下命令。服务监听本机 `127.0.0.1:8000`。
 
-### M6 音频节奏
+```powershell
+core/.venv/Scripts/python.exe scripts/start_server.py
+```
 
-导入含音轨的视频并点击“分析视频”，查看音频节奏面板中的 BPM、Beat/onset、切镜同步率及时间轴。点击镜头可定位播放并查看有符号的偏差；“重新分析音频”只重算音频，不调用视觉或 OCR 模型。
+核心回归测试使用隔离的临时资料库。
 
-默认同步容差为 ±80ms。无音轨、静音、节拍不足会明确显示不可判断。JSON、Markdown、AE Recipe 与 Library 都保留节奏结果。V1.0 使用 schema6；时间原点无法确认的非零时间戳旧镜头需重新分析视频。
+```powershell
+core/.venv/Scripts/python.exe -m pytest core/tests -q
+```
 
-可复现的合成 MP4 验收：`core/.venv/Scripts/python.exe scripts/accept_audio.py`（Windows）。该脚本真实运行音频算法，Vision/OCR 使用 Mock，结果只写 `output/m6_acceptance` 的独立库。真实模型及局部分析验收入口见[构建说明](docs/V1_0_BUILD_GUIDE.md)。
+主要目录如下。
 
----
+```text
+apps/desktop/    桌面界面与 Tauri 宿主
+core/           视频、运动、音频、OCR、模型接口与参考库
+core/recipe/    制作建议与 AE 导出
+core/selection/ 单帧、片段与叠化测量
+docs/           使用、构建、字段与版本说明
+scripts/        构建、验证与评测入口
+```
 
-## 核心原则
-
-1. 先做可靠的数据流水线。
-2. 传统算法解决能量化的问题。
-3. VLM 解决语义问题。
-4. 不让 AI 把“推测”写成“事实”。
-5. 所有 AI 输出必须结构化。
-6. 所有分析步骤必须可重试。
-7. 所有昂贵步骤必须缓存。
-8. MVP 不与 LocalFX 强耦合。
-
----
+[结构化数据说明](docs/JSON_SCHEMA.md) · [构建与验收入口](docs/V1_0_BUILD_GUIDE.md) · [版本记录](docs/RELEASE_v1.10.0.md)
 
 ## 许可证
 
-MIT
+项目采用 [MIT License](LICENSE)。第三方依赖及其许可见对应发布版本随附的第三方说明。

@@ -109,7 +109,7 @@ def test_source_changed_during_worker_is_not_published(setup, monkeypatch):
         release.set()
     record = wait_done(client, rid)
     assert record['status'] == 'error' and record['result'] == {}
-    assert client.post('/api/v1/project/save').status_code == 400  # source identity now differs; lock released
+    assert client.post('/api/v1/project/save').status_code == 409  # source identity conflict; lock released
 
 
 def test_thread_start_failure_releases_lock_and_marks_record(setup, monkeypatch):
@@ -159,3 +159,39 @@ def test_progress_polling_reuses_verified_source_and_detects_changes(setup, monk
     assert len(calls) <= 1
     source.write_bytes(b'replaced')
     assert not client.get(f'/api/v1/selection-analyses/{rid}').json()['source_available']
+
+
+def test_clip_geometry_survives_outdated_parent_dimensions(setup, monkeypatch):
+    client, pid, _ = setup
+    original = jobs.run_selection
+    geometry_seen = []
+
+    def observed(snapshot, report):
+        geometry_seen.append(snapshot.display_geometry)
+        return original(snapshot, report)
+
+    monkeypatch.setattr(jobs, 'run_selection', observed)
+    library = api._get_library()
+    with library._conn:
+        library._conn.execute('UPDATE projects SET video_width=120,video_height=160 WHERE id=?',(pid,))
+    response = client.post(f'/api/v1/projects/{pid}/selection-analyses', json={'kind':'clip','start':0,'end':.5})
+    assert response.status_code == 202, response.text
+    record = wait_done(client,response.json()['record_id'])
+    assert record['status'] in ('done','completed_with_warnings'), record
+    assert geometry_seen == [(160,120,24.0)]
+    assert record['result']['display_geometry'] == {'width':160,'height':120,'fps':24.0}
+    assert library.get_project(pid).video_width == 120
+
+
+def test_reanalysis_refreshes_legacy_project_display_size(setup):
+    client, pid, _ = setup
+    library = api._get_library()
+    with library._conn:
+        library._conn.execute('UPDATE projects SET video_width=120,video_height=160 WHERE id=?',(pid,))
+    assert client.post(f'/api/v1/library/projects/{pid}/load').status_code == 200
+    assert api._project_state.video.width == 120
+    response = client.post('/api/v1/video/analyze', json={'mode':'basic'})
+    assert response.status_code == 200, response.text
+    saved = library.get_project(pid)
+    assert (api._project_state.video.width,api._project_state.video.height) == (160,120)
+    assert (saved.video_width,saved.video_height) == (160,120)

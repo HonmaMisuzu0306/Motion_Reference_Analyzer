@@ -11,7 +11,7 @@ pub struct Backend { inner: Arc<Mutex<Inner>>, pub log_path: PathBuf, resource: 
 #[derive(Deserialize)]
 struct Ready { product: String, version: String, protocol: u32, instance_id: String, port: u16, pid: u32 }
 fn matches(ready: &Ready, expected: &str, port: u16) -> bool {
-    ready.product == "mra" && ready.version == "1.0.0" && ready.protocol == 1
+    ready.product == "mra" && ready.version == "1.10.0" && ready.protocol == 1
         && ready.instance_id == expected && ready.port == port && ready.pid > 0
 }
 fn kill_owned(child: &mut Child) {
@@ -92,7 +92,7 @@ impl Backend {
 }
 #[cfg(test)] mod tests { use super::*;
     #[test] fn refuses_unrelated_or_wrong_protocol_server() {
-        let mut r = Ready { product: "mra".into(), version: "1.0.0".into(), protocol: 1, instance_id: "owned".into(), port: 1234, pid: 1 };
+        let mut r = Ready { product: "mra".into(), version: "1.10.0".into(), protocol: 1, instance_id: "owned".into(), port: 1234, pid: 1 };
         assert!(matches(&r,"owned",1234)); assert!(!matches(&r,"other",1234));
         r.protocol = 2; assert!(!matches(&r,"owned",1234)); r.protocol=1; r.product="other".into(); assert!(!matches(&r,"owned",1234));
     }

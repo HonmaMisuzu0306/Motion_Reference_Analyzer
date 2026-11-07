@@ -1,6 +1,5 @@
 """Project mutations must not replace state beneath an in-flight analysis/load."""
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from threading import Event
 
 import pytest
@@ -10,8 +9,6 @@ from app import api
 from app.config import reset_config
 from app.main import app
 from schemas import Project, Shot, TimeRange, VideoInfo
-
-SAMPLE = Path(__file__).resolve().parents[2] / 'samples/test_typography.mp4'
 
 
 @pytest.fixture
@@ -33,9 +30,9 @@ def saved_project(tmp_path):
         shots=[Shot(shot_id='other_shot', time=TimeRange(start=0, end=1, duration=1))]))
 
 
-def test_running_analysis_rejects_load_import_and_save_without_state_changes(client, tmp_path, monkeypatch):
+def test_running_analysis_rejects_load_import_and_save_without_state_changes(client, tmp_path, monkeypatch, sample_video):
     project_id = saved_project(tmp_path)
-    assert client.post('/api/v1/video/import', json={'path': str(SAMPLE)}).status_code == 200
+    assert client.post('/api/v1/video/import', json={'path': str(sample_video)}).status_code == 200
     entered = Event()
     release = Event()
 
@@ -63,7 +60,7 @@ def test_running_analysis_rejects_load_import_and_save_without_state_changes(cli
     assert result.status_code == 200, result.text
     status = client.get('/api/v1/project/status').json()
     assert status['status'] in {'done', 'completed_with_warnings'}
-    assert status['video_path'] == str(SAMPLE)
+    assert status['video_path'] == str(sample_video)
     assert status['shot_count'] == 1
     assert client.post('/api/v1/library/save').status_code == 200
 
@@ -94,6 +91,6 @@ def test_loading_project_rejects_analysis_before_it_can_mutate_idle_state(client
     assert api._project_state.project_name == 'other'
 
 
-def test_failed_operation_releases_guard_for_next_import(client, tmp_path):
+def test_failed_operation_releases_guard_for_next_import(client, tmp_path, sample_video):
     assert client.post('/api/v1/video/import', json={'path': str(tmp_path / 'missing.mp4')}).status_code == 404
-    assert client.post('/api/v1/video/import', json={'path': str(SAMPLE)}).status_code == 200
+    assert client.post('/api/v1/video/import', json={'path': str(sample_video)}).status_code == 200

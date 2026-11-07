@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api, type Shot } from '../services/api';
 import { rangeError, type FramePosition, type SelectionRequest } from './selection';
 import './selection.css';
+import type { CaptureTime } from '../workbench/PreviewPanel';
 
 export function SelectionControls({duration,source,playhead,selected,busy,ensureProject,captureTime,onSubmit,onPlay}:{
  duration:number;source:string;playhead:number;selected:Shot|null;busy:boolean;ensureProject:()=>Promise<number>;
- captureTime:()=>Promise<number>;onSubmit:(request:SelectionRequest)=>Promise<void>;onPlay:(start:number,end:number)=>void;
+ captureTime:()=>Promise<CaptureTime>;onSubmit:(request:SelectionRequest)=>Promise<void>;onPlay:(start:number,end:number)=>void;
 }){
  const [start,setStart]=useState(0),[end,setEnd]=useState(Math.min(duration,5));
  const [frameTime,setFrameTime]=useState(0),[position,setPosition]=useState<FramePosition|null>(null);
@@ -26,7 +27,8 @@ export function SelectionControls({duration,source,playhead,selected,busy,ensure
  async function submit(request:SelectionRequest){setWorking(true);setError('');try{await onSubmit(request)}catch(err){setError(String(err))}finally{setWorking(false)}}
  async function currentFrame(analyze=false){
   const revision=++generation.current;setWorking(true);setError('');
-  try{const time=await captureTime();const pid=await ensureProject();const data=await api.framePosition(pid,time);
+  try{const time=await captureTime();const pid=await ensureProject();
+   const data=typeof time==='number'?await api.framePosition(pid,time):await api.framePosition(pid,time.presentedTime,undefined,'presented');
    if(revision!==generation.current)return;setPosition(data);setFrameTime(data.frame.actual_time);
    if(analyze)await onSubmit({kind:'frame',frame:data.frame,preview_token:data.preview_token});
   }catch(err){if(revision===generation.current)setError(String(err))}finally{setWorking(false)}
@@ -50,6 +52,7 @@ export function SelectionControls({duration,source,playhead,selected,busy,ensure
    <button disabled={disabled||!selected} onClick={()=>{if(selected){setStart(selected.time.start);setEnd(selected.time.end)}}}>使用当前镜头</button>
    <button disabled={disabled||!!invalid} onClick={()=>onPlay(start,end)}>播放选区</button>
    <button className="primary" disabled={disabled||!!invalid} onClick={()=>void submit({kind:'clip',start,end})}>分析片段</button>
+   <button title="选取 6 秒以内的一次叠化，两端各留至少 0.15 秒静止画面。此项只使用本地视频像素。" disabled={disabled||!!invalid||end-start>6} onClick={()=>void submit({kind:'clip',start,end,measurement:'opacity_blend'})}>测量叠化</button>
   </div>
   <div className="selection-range" role="img" aria-label={`源视频选区 ${start.toFixed(3)} 至 ${end.toFixed(3)} 秒`}>{!invalid&&<span style={{left:`${start/duration*100}%`,width:`${(end-start)/duration*100}%`}}/>}</div>
   <p className="muted">{invalid||`选区 [${start.toFixed(3)}, ${end.toFixed(3)}) 秒 · ${(end-start).toFixed(3)} 秒`} · 最长60秒 · 结果独立保存{!source?' · 源视频未导入或缺失':''}</p>

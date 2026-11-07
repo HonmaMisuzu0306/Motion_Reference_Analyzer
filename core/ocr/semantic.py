@@ -119,18 +119,21 @@ class TypographySemanticAnalyzer:
 
         for track in candidate_tracks:
             track_image = image_path
+            observation_time = track.start_time
             region = max(track.regions, key=lambda r: r.confidence) if track.regions else None
             sample_bbox = track.average_bbox
             if video_path is not None and region is not None:
                 # The shot's first representative frame may not contain this text.
                 from PIL import Image
 
-                from video.frame_sampler import sample_frames
+                from selection.frames import locate_frame
                 timestamp = region.frame_timestamp
-                decoded = sample_frames(video_path, timestamp, timestamp, count=1)[0]['image']
-                track_image = image_path.parent / f'text_{timestamp:.3f}.jpg'
+                decoded = locate_frame(video_path, timestamp)
+                identity = decoded.identity
+                observation_time = identity.actual_time
+                track_image = image_path.parent / f'text_{identity.source_hash[:12]}_{identity.stream_index}_{identity.pts}_{identity.time_base_num}_{identity.time_base_den}.jpg'
                 if not track_image.exists():
-                    Image.fromarray(decoded[:, :, ::-1]).save(track_image, quality=90)
+                    Image.fromarray(decoded.image[:, :, ::-1]).save(track_image, quality=90)
                 sample_bbox = region.bbox_normalized
             bbox = (
                 sample_bbox.x,
@@ -149,7 +152,7 @@ class TypographySemanticAnalyzer:
                 continue
 
             analysis: TypographyAnalysis | None = None
-            context = {"shot_id": shot_id, "timestamp": track.start_time}
+            context = {"shot_id": shot_id, "timestamp": observation_time}
             last_error = ""
             for attempt in range(self.max_retries + 1):
                 try:

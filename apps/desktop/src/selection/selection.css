@@ -42,3 +42,11 @@
 .selection-detail .selection-row{gap:6px}
 .selection-detail>section{align-self:stretch}
 .selection-evidence{max-width:100%;border-radius:var(--r-sm);background:#000;border:1px solid var(--line)}
+
+.opacity-blend{align-self:stretch}
+.opacity-blend table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.opacity-blend caption{text-align:left;color:var(--text-3);padding:4px 0;font-size:11px}
+.opacity-blend th,.opacity-blend td{padding:5px 4px;text-align:right;border-bottom:1px solid var(--line)}
+.opacity-blend th{font-weight:600;color:var(--text-3);font-size:10.5px}
+.opacity-blend td{font-family:var(--font-mono)}
+.opacity-blend td button{font:inherit;height:22px;padding:0 6px}

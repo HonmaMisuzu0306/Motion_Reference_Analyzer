@@ -11,6 +11,7 @@ from selection.api import startup_recover
 from .api import router as api_router
 from .model_api import router as model_router
 from .project_api import router as project_router
+from .region_api import router as region_router
 from .settings_api import router as settings_router
 
 logging.basicConfig(
@@ -29,7 +30,7 @@ async def lifespan(app):
 
 app = FastAPI(
     title="Motion Reference Analyzer Core",
-    version="1.0.0",
+    version="1.10.0",
     description="本地视频参考分析与 AE 拆解服务",
     lifespan=lifespan,
 )
@@ -38,6 +39,7 @@ app.include_router(api_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(model_router, prefix="/api/v1")
 app.include_router(project_router, prefix="/api/v1")
+app.include_router(region_router, prefix="/api/v1")
 app.include_router(selection_router, prefix="/api/v1")
 app.add_middleware(CORSMiddleware,
     allow_origins=["tauri://localhost", "http://tauri.localhost"],

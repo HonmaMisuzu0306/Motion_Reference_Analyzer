@@ -10,7 +10,7 @@ from pathlib import Path
 def identity():
     return {
         "product": "mra",
-        "version": "1.0.0",
+        "version": "1.10.0",
         "protocol": 1,
         "instance_id": os.environ.get("MRA_INSTANCE_ID", "development"),
         "port": int(os.environ.get("MRA_PORT", "8000")),

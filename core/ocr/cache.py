@@ -16,7 +16,7 @@ class OCRCache:
     缓存 Key 由视频身份、Shot 时间范围、采样配置、OCR Provider/模型/算法版本组成。
     """
 
-    def __init__(self, cache_dir: Path, algorithm_version: str = "v3-video-clock") -> None:
+    def __init__(self, cache_dir: Path, algorithm_version: str = "v5-square-pixel-display") -> None:
         self.cache_dir = cache_dir
         self.algorithm_version = algorithm_version
         self.cache_dir.mkdir(parents=True, exist_ok=True)

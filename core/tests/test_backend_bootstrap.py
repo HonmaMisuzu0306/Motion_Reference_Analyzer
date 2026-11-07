@@ -33,7 +33,7 @@ def test_owned_backend_dynamic_port_and_identity(tmp_path):
         )
         ready = json.loads(line.removeprefix("MRA_READY "))
         assert ready["instance_id"] == "test-owned"
-        assert ready["product"] == "mra" and ready["version"] == "1.0.0"
+        assert ready["product"] == "mra" and ready["version"] == "1.10.0"
         response = httpx.get(f"http://127.0.0.1:{ready['port']}/health", trust_env=False)
         assert response.json() == {**ready, "status": "ok"}
         assert ready["pid"] > 0
