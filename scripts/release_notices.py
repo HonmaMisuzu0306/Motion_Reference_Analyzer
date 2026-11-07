@@ -41,12 +41,12 @@ if python_license.is_file():
     shutil.copy2(python_license, release/'licenses/Python-LICENSE.txt')
 npm = json.loads((root/'apps/desktop/package-lock.json').read_text(encoding='utf-8'))
 rust = tomllib.loads((root/'apps/desktop/src-tauri/Cargo.lock').read_text(encoding='utf-8'))
-manifest = {'version':'1.10.0', 'python':sys.version, 'frozen_python_distributions':python,
+manifest = {'version':'1.10.1', 'python':sys.version, 'frozen_python_distributions':python,
             'npm_build_lock':npm, 'rust_build_lock':rust,
             'scope':'Python rows matched frozen Analysis sources; npm/Rust include build graphs, not a claim that every entry is shipped.'}
 (release/'BUILD_DEPENDENCIES.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2),encoding='utf-8')
 rows = '\n'.join(f"| {item['name']} | {item['version']} | {(item['license'] or '; '.join(item['license_classifiers']) or '见上游 metadata').replace(chr(10),' ')[:120]} |" for item in python)
-notice = f'''# MRA 1.10.0 第三方说明
+notice = f'''# MRA 1.10.1 第三方说明
 
 本项目源码声明 MIT。分析运行时使用 Python 及下表组件；版本来自当前构建环境，并与冻结 Analysis 输入对应。
 可获得的上游许可文本保存在本目录的 `licenses/`，详细 metadata、npm 和 Rust 构建锁保存在 `BUILD_DEPENDENCIES.json`。

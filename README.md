@@ -4,7 +4,7 @@ Motion Reference Analyzer（MRA）是一款面向 **静止画 MAD、Galgame OP�
 
 适合研究参考片的运镜节奏、整理镜头资料，以及用自己的图片、图稿和标注试作相似动效。
 
-[下载 v1.10.0](https://github.com/HonmaMisuzu0306/Motion_Reference_Analyzer/releases/tag/v1.10.0) · [使用与模型准备](docs/V1_0_USAGE.md) · [本版更新](docs/RELEASE_v1.10.0.md)
+[下载已发布版](https://github.com/HonmaMisuzu0306/Motion_Reference_Analyzer/releases/latest) · [使用与模型准备](docs/V1_0_USAGE.md) · [v1.10.1 界面更新](docs/RELEASE_v1.10.1.md)
 
 ## 可以做什么
 
@@ -79,7 +79,7 @@ docs/           使用、构建、字段与版本说明
 scripts/        构建、验证与评测入口
 ```
 
-[结构化数据说明](docs/JSON_SCHEMA.md) · [构建与验收入口](docs/V1_0_BUILD_GUIDE.md) · [版本记录](docs/RELEASE_v1.10.0.md)
+[结构化数据说明](docs/JSON_SCHEMA.md) · [构建与验收入口](docs/V1_0_BUILD_GUIDE.md) · [版本记录](docs/RELEASE_v1.10.1.md)
 
 ## 许可证
 

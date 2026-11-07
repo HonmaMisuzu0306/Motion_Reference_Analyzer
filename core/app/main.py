@@ -30,7 +30,7 @@ async def lifespan(app):
 
 app = FastAPI(
     title="Motion Reference Analyzer Core",
-    version="1.10.0",
+    version="1.10.1",
     description="本地视频参考分析与 AE 拆解服务",
     lifespan=lifespan,
 )

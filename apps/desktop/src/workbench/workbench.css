@@ -1,5 +1,5 @@
 /* Analysis workbench: shot browser · preview · inspector · timeline */
-.mra-workbench{display:flex;flex-direction:column;flex:1;min-height:0;padding:0 10px 10px;gap:0}
+.mra-workbench{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;padding:0 10px 10px;gap:0}
 .workspace-options{display:flex;align-items:center;gap:4px;height:40px;flex:none}
 .workspace-options .ghost.on{color:var(--text)}
 .workspace-options .ghost.on .icon{color:var(--accent)}

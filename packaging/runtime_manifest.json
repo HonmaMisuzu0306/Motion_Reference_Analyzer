@@ -1,5 +1,5 @@
 {
-  "version": "1.10.0",
+  "version": "1.10.1",
   "entry": "mra-core/mra-core.exe",
   "modules": ["av", "cv2", "librosa", "numba", "paddle", "paddleocr", "paddlex", "fastapi", "uvicorn"],
   "sources": ["core source packages", "project virtual environment site-packages", "Python standard library", "PyInstaller generated bootloader/archive"],

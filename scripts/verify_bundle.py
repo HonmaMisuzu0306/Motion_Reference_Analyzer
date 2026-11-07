@@ -42,7 +42,7 @@ if redistributables:
     command="$v1Dlls = ($input | Out-String | ConvertFrom-Json); foreach ($v1Dll in $v1Dlls) { $v1Signature = Get-AuthenticodeSignature -LiteralPath $v1Dll; if ($v1Signature.Status -ne 'Valid' -or $v1Signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw ('Untrusted runtime DLL: ' + $v1Dll) } }; Write-Output 'Microsoft redistributables verified'"
     verification=subprocess.run(['pwsh','-NoProfile','-NonInteractive','-Command',command],input=json.dumps(sorted(set(redistributables))),text=True,capture_output=True)
     assert verification.returncode==0,verification.stderr
-report={'version':'1.10.0','files':sum(p.is_file() for p in files),'bytes':sum(p.stat().st_size for p in files if p.is_file()),
+report={'version':'1.10.1','files':sum(p.is_file() for p in files),'bytes':sum(p.stat().st_size for p in files if p.is_file()),
         'executable_sha256':hashlib.sha256((bundle/'mra-core.exe').read_bytes()).hexdigest(),'sources':inputs}
 (root/'output/v1_build/runtime_provenance.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
 print(json.dumps({key:value for key,value in report.items() if key!='sources'}))

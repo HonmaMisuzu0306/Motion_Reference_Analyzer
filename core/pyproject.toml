@@ -1,6 +1,6 @@
 [project]
 name = "motion-reference-analyzer"
-version = "1.10.0"
+version = "1.10.1"
 description = "Motion Reference Analyzer Core"
 requires-python = ">=3.12"
 dependencies = [
